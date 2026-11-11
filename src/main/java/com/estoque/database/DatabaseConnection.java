@@ -15,6 +15,15 @@ public final class DatabaseConnection {
                     + "preco DECIMAL(65, 30) NOT NULL CHECK (preco >= 0),"
                     + "quantidade INTEGER NOT NULL CHECK (quantidade >= 0)"
                     + ")";
+    private static final String CREATE_SUPPLIERS_TABLE =
+            "CREATE TABLE IF NOT EXISTS fornecedores ("
+                    + "id BIGINT AUTO_INCREMENT PRIMARY KEY,"
+                    + "nome VARCHAR(255) NOT NULL,"
+                    + "cnpj VARCHAR(18) UNIQUE,"
+                    + "telefone VARCHAR(20),"
+                    + "email VARCHAR(255),"
+                    + "endereco TEXT"
+                    + ")";
 
     private DatabaseConnection() {
     }
@@ -36,6 +45,7 @@ public final class DatabaseConnection {
         try (Connection connection = getConnection();
              Statement statement = connection.createStatement()) {
             statement.execute(CREATE_PRODUCTS_TABLE);
+            statement.execute(CREATE_SUPPLIERS_TABLE);
         }
     }
 

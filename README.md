@@ -23,9 +23,11 @@ Na raiz do projeto, execute:
 mvn compile exec:java
 ```
 
-Na primeira execucao, o banco `estoque` e a tabela `produtos` sao criados
-automaticamente. O usuario MySQL precisa ter permissao para criar o banco; se
-nao tiver, crie-o antes (`CREATE DATABASE estoque;`). A janela permite
+Na primeira execucao, o banco `estoque` e as tabelas `produtos` e
+`fornecedores` sao criados automaticamente. A tabela `fornecedores` armazena
+nome, CNPJ (opcional e unico), telefone, e-mail e endereco. O usuario MySQL
+precisa ter permissao para criar o banco; se nao tiver, crie-o antes
+(`CREATE DATABASE estoque;`). A janela permite
 cadastrar, listar, atualizar, remover produtos e registrar entradas e saidas
 do estoque. Clique em um produto da tabela para preencher os campos.
 
