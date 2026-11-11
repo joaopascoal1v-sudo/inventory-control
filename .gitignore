@@ -1,0 +1,4 @@
+target/
+estoque.db
+estoque.db-shm
+estoque.db-wal
