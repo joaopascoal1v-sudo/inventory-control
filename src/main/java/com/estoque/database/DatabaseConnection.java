@@ -24,6 +24,14 @@ public final class DatabaseConnection {
                     + "email VARCHAR(255),"
                     + "endereco TEXT"
                     + ")";
+    private static final String CREATE_USERS_TABLE =
+            "CREATE TABLE IF NOT EXISTS usuarios ("
+                    + "id BIGINT AUTO_INCREMENT PRIMARY KEY,"
+                    + "nome VARCHAR(255) NOT NULL,"
+                    + "email VARCHAR(255) NOT NULL UNIQUE,"
+                    + "senha_hash VARCHAR(255) NOT NULL,"
+                    + "perfil VARCHAR(20) NOT NULL"
+                    + ")";
 
     private DatabaseConnection() {
     }
@@ -46,6 +54,7 @@ public final class DatabaseConnection {
              Statement statement = connection.createStatement()) {
             statement.execute(CREATE_PRODUCTS_TABLE);
             statement.execute(CREATE_SUPPLIERS_TABLE);
+            statement.execute(CREATE_USERS_TABLE);
         }
     }
 

@@ -1,8 +1,12 @@
 package com.estoque.app;
 
 import com.estoque.database.DatabaseConnection;
+import com.estoque.repository.FornecedorRepositoryJdbc;
 import com.estoque.repository.ProdutoRepositoryJdbc;
+import com.estoque.repository.UsuarioRepositoryJdbc;
 import com.estoque.service.EstoqueService;
+import com.estoque.service.FornecedorService;
+import com.estoque.service.UsuarioService;
 
 import java.sql.SQLException;
 import javax.swing.SwingUtilities;
@@ -17,6 +21,8 @@ public class Main {
         }
 
         EstoqueService estoque = new EstoqueService(new ProdutoRepositoryJdbc());
-        SwingUtilities.invokeLater(() -> new UI(estoque).iniciar());
+        FornecedorService fornecedores = new FornecedorService(new FornecedorRepositoryJdbc());
+        UsuarioService usuarios = new UsuarioService(new UsuarioRepositoryJdbc());
+        SwingUtilities.invokeLater(() -> new UI(estoque, fornecedores, usuarios).iniciar());
     }
 }
