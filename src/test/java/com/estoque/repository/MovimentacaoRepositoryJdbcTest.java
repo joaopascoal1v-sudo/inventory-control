@@ -114,6 +114,21 @@ class MovimentacaoRepositoryJdbcTest {
     }
 
     @Test
+    void listaUltimasMovimentacoesRespeitandoLimiteEOrdem() throws SQLException {
+        MovimentacaoEstoque primeira = registrar("P1", TipoMovimentacao.ENTRADA, DirecaoMovimentacao.ENTRADA, 1);
+        MovimentacaoEstoque segunda = registrar("P2", TipoMovimentacao.ENTRADA, DirecaoMovimentacao.ENTRADA, 2);
+        MovimentacaoEstoque terceira = registrar("P1", TipoMovimentacao.SAIDA, DirecaoMovimentacao.SAIDA, 3);
+
+        List<MovimentacaoEstoque> ultimas = repository.listarUltimas(2);
+
+        assertEquals(List.of(terceira.id(), segunda.id()),
+                ultimas.stream().map(MovimentacaoEstoque::id).toList());
+        assertEquals(3, repository.listarUltimas(10).size());
+        assertEquals(primeira.id(), repository.listarUltimas(10).getLast().id());
+        assertThrows(IllegalArgumentException.class, () -> repository.listarUltimas(0));
+    }
+
+    @Test
     void rejeitaDirecaoIncompativelComTipo() {
         assertThrows(IllegalArgumentException.class,
                 () -> repository.registrar("P1", TipoMovimentacao.ENTRADA,

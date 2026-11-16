@@ -68,6 +68,38 @@ mvn compile exec:java
 O arquivo `estoque.db` do SQLite nao e importado automaticamente; os dados
 existentes nele precisam ser migrados para o MySQL separadamente.
 
+## Painel web (dashboard)
+
+Junto com a janela desktop e a API, a aplicacao inicia um painel web feito com
+telas Thymeleaf (HTML + CSS), disponivel em `http://127.0.0.1:8081/`. Entre
+com o mesmo e-mail e senha usados no aplicativo desktop.
+
+- **Dashboard**: total de produtos, unidades e valor em estoque, quantidade de
+  produtos com estoque baixo, lista de alertas e as ultimas movimentacoes.
+- **Produtos**: todos os produtos com a cobertura do estoque minimo; produtos
+  abaixo do minimo aparecem destacados em amarelo e, sem estoque, em vermelho.
+  Ha filtro "Estoque baixo" e busca por codigo ou nome.
+- **Movimentacoes**: historico filtravel por produto, tipo e periodo.
+- **Alerta visual de estoque minimo**: enquanto houver produtos abaixo do
+  minimo, uma faixa de alerta aparece no topo de todas as paginas e o menu
+  Produtos mostra a quantidade de alertas.
+
+Um produto entra em alerta quando tem estoque minimo maior que zero e a
+quantidade atual e menor que esse minimo (a mesma regra de
+`/api/estoque/alertas-minimo`). O painel e somente leitura: cadastros e
+movimentacoes continuam sendo feitos pelo aplicativo desktop ou pela API.
+
+Para usar outra porta, defina `WEB_PORT`:
+
+```bash
+$env:WEB_PORT = '9090'
+mvn compile exec:java
+```
+
+O painel atende apenas em `127.0.0.1`. A sessao expira apos 30 minutos sem
+uso. Em um ambiente sem interface grafica, a aplicacao inicia somente a API e
+o painel web.
+
 ## Estrutura
 
 - `entities`: entidade e regras basicas do produto.
@@ -76,6 +108,8 @@ existentes nele precisam ser migrados para o MySQL separadamente.
 - `security`: hash e verificacao de senhas dos usuarios.
 - `database`: conexao e inicializacao do esquema MySQL.
 - `app`: `Main` inicializa a aplicacao e `UI` mostra a janela grafica.
+- `web`: servidor do painel web, sessoes de login e dados das telas.
+- `resources/templates` e `resources/static`: telas Thymeleaf e folha de estilo.
 
 ## Fornecedores e usuarios
 

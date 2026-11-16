@@ -184,13 +184,17 @@ public class EstoqueService {
         List<Produto> alertas = new ArrayList<>();
 
         for (Produto produto : produtoRepository.listar()) {
-            if (produto.getEstoqueMinimo() > 0
-                    && produto.getQuantidade() < produto.getEstoqueMinimo()) {
+            if (produto.estaAbaixoDoMinimo()) {
                 alertas.add(produto);
             }
         }
 
         return alertas;
+    }
+
+    public List<MovimentacaoEstoque> listarUltimasMovimentacoes(int limite)
+            throws SQLException {
+        return movimentacaoRepository.listarUltimas(limite);
     }
 
     public List<ResumoEstoque> relatorioEstoque() throws SQLException {

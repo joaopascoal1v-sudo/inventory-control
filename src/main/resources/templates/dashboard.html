@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="pt-BR" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Dashboard')}"></head>
+<body>
+<header th:replace="~{fragments/layout :: cabecalho}"></header>
+<div th:replace="~{fragments/layout :: alertaGlobal}"></div>
+
+<main class="conteudo">
+    <div class="cabecalho-pagina">
+        <div>
+            <h1>Dashboard</h1>
+            <p class="subtitulo">Visão geral do estoque</p>
+        </div>
+        <a class="botao botao-secundario" th:href="@{/dashboard}">Atualizar</a>
+    </div>
+
+    <section class="indicadores" aria-label="Indicadores do estoque">
+        <article class="indicador">
+            <h2 class="indicador-rotulo">Total de produtos</h2>
+            <p class="indicador-valor" th:text="${#numbers.formatInteger(resumo.totalProdutos, 1, 'POINT')}">0</p>
+            <p class="indicador-detalhe">cadastrados no sistema</p>
+        </article>
+        <article class="indicador">
+            <h2 class="indicador-rotulo">Unidades em estoque</h2>
+            <p class="indicador-valor" th:text="${#numbers.formatInteger(resumo.unidadesEmEstoque, 1, 'POINT')}">0</p>
+            <p class="indicador-detalhe">somando todos os produtos</p>
+        </article>
+        <article class="indicador">
+            <h2 class="indicador-rotulo">Valor em estoque</h2>
+            <p class="indicador-valor" th:text="${#numbers.formatCurrency(resumo.valorEmEstoque)}">R$ 0,00</p>
+            <p class="indicador-detalhe">preço × quantidade</p>
+        </article>
+        <a class="indicador indicador-link" th:href="@{/produtos(situacao='baixo')}"
+           th:classappend="${resumo.totalAlertas() == 0} ? 'indicador-ok' : (${resumo.produtosSemEstoque() > 0} ? 'indicador-perigo' : 'indicador-atencao')">
+            <h2 class="indicador-rotulo">
+                <th:block th:if="${resumo.totalAlertas() > 0}"><svg th:replace="~{fragments/layout :: iconeAlerta}"></svg></th:block>
+                Estoque baixo
+            </h2>
+            <p class="indicador-valor" th:text="${resumo.totalAlertas()}">0</p>
+            <p class="indicador-detalhe" th:if="${resumo.totalAlertas() > 0}"
+               th:text="${resumo.produtosSemEstoque() == 1} ? '1 sem estoque · ver produtos' : ${resumo.produtosSemEstoque()} + ' sem estoque · ver produtos'">ver produtos</p>
+            <p class="indicador-detalhe" th:unless="${resumo.totalAlertas() > 0}">todos acima do mínimo</p>
+        </a>
+    </section>
+
+    <div class="grade-paineis">
+        <section class="painel" aria-labelledby="titulo-alertas">
+            <div class="painel-cabecalho">
+                <h2 id="titulo-alertas">Alertas de estoque mínimo</h2>
+                <a th:if="${resumo.totalAlertas() > 0}" class="link-acao"
+                   th:href="@{/produtos(situacao='baixo')}">Ver todos</a>
+            </div>
+
+            <div th:if="${resumo.alertas.isEmpty()}" class="vazio vazio-ok">
+                <svg th:replace="~{fragments/layout :: iconeOk}"></svg>
+                <p><strong>Tudo em ordem.</strong> Nenhum produto está abaixo do estoque mínimo.</p>
+            </div>
+
+            <div th:unless="${resumo.alertas.isEmpty()}" class="tabela-rolagem">
+                <table class="tabela tabela-compacta">
+                    <thead>
+                    <tr>
+                        <th scope="col">Produto</th>
+                        <th scope="col" class="num">Atual</th>
+                        <th scope="col" class="num">Mínimo</th>
+                        <th scope="col" class="ocultar-celular">Cobertura</th>
+                        <th scope="col" class="num">Faltam</th>
+                        <th scope="col">Situação</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="p : ${resumo.alertasEmDestaque()}" th:class="'linha-' + ${p.situacao.classe}">
+                        <td class="celula-produto">
+                            <span class="produto-nome" th:text="${p.nome}">Nome</span>
+                            <span class="produto-codigo" th:text="${p.codigo}">COD</span>
+                        </td>
+                        <td class="num quantidade-alerta" th:text="${p.quantidade}">0</td>
+                        <td class="num" th:text="${p.estoqueMinimo}">0</td>
+                        <td class="ocultar-celular"><span th:replace="~{fragments/layout :: nivel(${p})}"></span></td>
+                        <td class="num"><strong th:text="${p.faltam()}">0</strong></td>
+                        <td><span th:replace="~{fragments/layout :: selo(${p.situacao})}"></span></td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p class="painel-rodape" th:if="${resumo.totalAlertas() > resumo.alertasEmDestaque().size()}">
+                <a th:href="@{/produtos(situacao='baixo')}"
+                   th:text="'+ ' + ${resumo.totalAlertas() - resumo.alertasEmDestaque().size()} + ' outros produtos em alerta'">outros</a>
+            </p>
+        </section>
+
+        <section class="painel" aria-labelledby="titulo-movimentacoes">
+            <div class="painel-cabecalho">
+                <h2 id="titulo-movimentacoes">Últimas movimentações</h2>
+                <a class="link-acao" th:href="@{/movimentacoes}">Ver histórico</a>
+            </div>
+
+            <div th:if="${resumo.ultimasMovimentacoes.isEmpty()}" class="vazio">
+                <p>Nenhuma movimentação registrada ainda.</p>
+            </div>
+
+            <ol th:unless="${resumo.ultimasMovimentacoes.isEmpty()}" class="lista-movimentacoes">
+                <li th:each="m : ${resumo.ultimasMovimentacoes}" class="movimentacao"
+                    th:classappend="${m.entrada()} ? 'movimentacao-entrada' : 'movimentacao-saida'">
+                    <span class="movimentacao-icone">
+                        <th:block th:if="${m.entrada()}"><svg th:replace="~{fragments/layout :: iconeEntrada}"></svg></th:block>
+                        <th:block th:unless="${m.entrada()}"><svg th:replace="~{fragments/layout :: iconeSaida}"></svg></th:block>
+                    </span>
+                    <div class="movimentacao-info">
+                        <p class="movimentacao-produto">
+                            <span th:text="${m.nomeProduto}">Produto</span>
+                            <span class="produto-codigo" th:text="${m.codigoProduto}">COD</span>
+                        </p>
+                        <p class="movimentacao-meta">
+                            <span th:text="${m.descricao()}">Tipo · Motivo</span>
+                            <span aria-hidden="true">·</span>
+                            <time th:datetime="${#temporals.format(m.data, 'yyyy-MM-dd HH:mm')}"
+                                  th:text="${#temporals.format(m.data, 'dd/MM/yyyy HH:mm')}">data</time>
+                            <span th:if="${m.estornada()}" class="etiqueta">Estornada</span>
+                            <span th:if="${m.estorno()}" class="etiqueta" th:text="'Estorno de #' + ${m.estornoDeId}">Estorno</span>
+                        </p>
+                    </div>
+                    <div class="movimentacao-quantidade">
+                        <strong th:text="${m.quantidadeComSinal()}">+0</strong>
+                        <span th:text="'saldo ' + ${m.saldoDepois}">saldo</span>
+                    </div>
+                </li>
+            </ol>
+        </section>
+    </div>
+</main>
+
+<footer th:replace="~{fragments/layout :: rodape}"></footer>
+</body>
+</html>

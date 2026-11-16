@@ -57,6 +57,14 @@ public class Produto {
         return estoqueMinimo;
     }
 
+    /**
+     * Indica se o produto deve gerar alerta de estoque minimo. Produtos com
+     * estoque minimo zero nao possuem limite configurado e nunca geram alerta.
+     */
+    public boolean estaAbaixoDoMinimo() {
+        return estoqueMinimo > 0 && quantidade < estoqueMinimo;
+    }
+
     public void atualizar(String nome, BigDecimal preco) {
         if (nome == null || nome.trim().isEmpty()) {
             throw new IllegalArgumentException("O nome do produto e obrigatorio.");

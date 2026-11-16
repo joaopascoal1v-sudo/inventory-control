@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="pt-BR" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Produtos')}"></head>
+<body>
+<header th:replace="~{fragments/layout :: cabecalho}"></header>
+<div th:replace="~{fragments/layout :: alertaGlobal}"></div>
+
+<main class="conteudo">
+    <div class="cabecalho-pagina">
+        <div>
+            <h1>Produtos</h1>
+            <p class="subtitulo">Quantidades atuais comparadas ao estoque mínimo de cada produto</p>
+        </div>
+    </div>
+
+    <section class="painel">
+        <div class="barra-filtros">
+            <nav class="abas" aria-label="Filtrar por situação">
+                <a th:href="${busca.isEmpty()} ? @{/produtos} : @{/produtos(busca=${busca})}"
+                   th:classappend="${!somenteAlertas} ? 'ativo'"
+                   th:attr="aria-current=${!somenteAlertas} ? 'page' : null">
+                    Todos <span class="aba-contador" th:text="${totalProdutos}">0</span>
+                </a>
+                <a th:href="${busca.isEmpty()} ? @{/produtos(situacao='baixo')} : @{/produtos(situacao='baixo',busca=${busca})}"
+                   th:classappend="${somenteAlertas} ? 'ativo'"
+                   th:attr="aria-current=${somenteAlertas} ? 'page' : null">
+                    Estoque baixo
+                    <span class="aba-contador" th:classappend="${totalAlertas > 0} ? 'contador-alerta'"
+                          th:text="${totalAlertas}">0</span>
+                </a>
+            </nav>
+
+            <form class="busca" method="get" th:action="@{/produtos}" role="search">
+                <input th:if="${somenteAlertas}" type="hidden" name="situacao" value="baixo">
+                <label class="visualmente-oculto" for="busca">Buscar produto</label>
+                <input id="busca" name="busca" type="search" maxlength="100"
+                       placeholder="Buscar por código ou nome" th:value="${busca}">
+                <button type="submit" class="botao botao-secundario">Buscar</button>
+                <a th:unless="${busca.isEmpty()}" class="link-acao"
+                   th:href="${somenteAlertas} ? @{/produtos(situacao='baixo')} : @{/produtos}">Limpar</a>
+            </form>
+        </div>
+
+        <div th:if="${produtos.isEmpty()}" class="vazio" th:classappend="${somenteAlertas and busca.isEmpty()} ? 'vazio-ok'">
+            <th:block th:if="${somenteAlertas and busca.isEmpty()}">
+                <svg th:replace="~{fragments/layout :: iconeOk}"></svg>
+                <p><strong>Tudo em ordem.</strong> Nenhum produto está abaixo do estoque mínimo.</p>
+            </th:block>
+            <p th:if="${!busca.isEmpty()}">Nenhum produto encontrado para “<span th:text="${busca}">busca</span>”.</p>
+            <p th:if="${!somenteAlertas and busca.isEmpty()}">Nenhum produto cadastrado ainda. Cadastre produtos pelo aplicativo desktop.</p>
+        </div>
+
+        <div th:unless="${produtos.isEmpty()}" class="tabela-rolagem">
+            <table class="tabela">
+                <thead>
+                <tr>
+                    <th scope="col">Código</th>
+                    <th scope="col">Produto</th>
+                    <th scope="col" class="num">Preço</th>
+                    <th scope="col" class="num">Em estoque</th>
+                    <th scope="col" class="num">Mínimo</th>
+                    <th scope="col">Cobertura do mínimo</th>
+                    <th scope="col">Situação</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="p : ${produtos}" th:class="'linha-' + ${p.situacao.classe}">
+                    <td class="produto-codigo-celula" th:text="${p.codigo}">COD</td>
+                    <td>
+                        <span class="produto-nome" th:text="${p.nome}">Nome</span>
+                        <span th:if="${p.emAlerta()}" class="produto-falta"
+                              th:text="${p.faltam() == 1} ? 'falta 1 unidade' : 'faltam ' + ${p.faltam()} + ' unidades'">faltam</span>
+                    </td>
+                    <td class="num" th:text="${#numbers.formatCurrency(p.preco)}">R$ 0,00</td>
+                    <td class="num" th:classappend="${p.emAlerta()} ? 'quantidade-alerta'">
+                        <strong th:text="${#numbers.formatInteger(p.quantidade, 1, 'POINT')}">0</strong>
+                    </td>
+                    <td class="num" th:text="${p.possuiMinimo()} ? ${#numbers.formatInteger(p.estoqueMinimo, 1, 'POINT')} : '—'">0</td>
+                    <td>
+                        <th:block th:if="${p.possuiMinimo()}"><span th:replace="~{fragments/layout :: nivel(${p})}"></span></th:block>
+                        <span th:unless="${p.possuiMinimo()}" class="texto-suave">sem mínimo definido</span>
+                    </td>
+                    <td><span th:replace="~{fragments/layout :: selo(${p.situacao})}"></span></td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="legenda" aria-label="Legenda das situações">
+            <span><span class="selo selo-esgotado"><span class="selo-ponto"></span>Sem estoque</span> quantidade zerada com mínimo definido</span>
+            <span><span class="selo selo-baixo"><span class="selo-ponto"></span>Estoque baixo</span> abaixo do estoque mínimo</span>
+            <span><span class="selo selo-normal"><span class="selo-ponto"></span>Normal</span> no mínimo ou acima, ou sem mínimo definido</span>
+        </div>
+    </section>
+</main>
+
+<footer th:replace="~{fragments/layout :: rodape}"></footer>
+</body>
+</html>
