@@ -388,6 +388,40 @@ public class MovimentacaoRepositoryJdbc implements MovimentacaoRepository {
         if (direcao == null) {
             throw new IllegalArgumentException("A direcao da movimentacao e obrigatoria.");
         }
+        switch (tipo) {
+            case ENTRADA -> {
+                if (direcao != DirecaoMovimentacao.ENTRADA) {
+                    throw new IllegalArgumentException("Movimentacoes de entrada exigem direcao ENTRADA.");
+                }
+            }
+            case SAIDA -> {
+                if (direcao != DirecaoMovimentacao.SAIDA) {
+                    throw new IllegalArgumentException("Movimentacoes de saida exigem direcao SAIDA.");
+                }
+            }
+            case DEVOLUCAO -> {
+                if (direcao != DirecaoMovimentacao.ENTRADA) {
+                    throw new IllegalArgumentException("Devolucoes exigem direcao ENTRADA.");
+                }
+            }
+            case PERDA -> {
+                if (direcao != DirecaoMovimentacao.SAIDA) {
+                    throw new IllegalArgumentException("Perdas exigem direcao SAIDA.");
+                }
+            }
+            case TRANSFERENCIA -> {
+                if (direcao != DirecaoMovimentacao.SAIDA) {
+                    throw new IllegalArgumentException(
+                            "Transferencias devem registrar a saida na origem com direcao SAIDA.");
+                }
+            }
+            case AJUSTE -> {
+                if (direcao != DirecaoMovimentacao.ENTRADA && direcao != DirecaoMovimentacao.SAIDA) {
+                    throw new IllegalArgumentException("Ajustes exigem direcao ENTRADA ou SAIDA.");
+                }
+            }
+            default -> throw new IllegalArgumentException("Tipo de movimentacao invalido.");
+        }
     }
 
     @FunctionalInterface

@@ -1,13 +1,5 @@
 package com.estoque.repository;
 
-import com.estoque.entities.DirecaoMovimentacao;
-import com.estoque.entities.MotivoMovimentacao;
-import com.estoque.entities.MovimentacaoEstoque;
-import com.estoque.entities.TipoMovimentacao;
-import org.h2.jdbcx.JdbcDataSource;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -15,10 +7,18 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
+import org.h2.jdbcx.JdbcDataSource;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import com.estoque.entities.DirecaoMovimentacao;
+import com.estoque.entities.MotivoMovimentacao;
+import com.estoque.entities.MovimentacaoEstoque;
+import com.estoque.entities.TipoMovimentacao;
 
 class MovimentacaoRepositoryJdbcTest {
     private JdbcDataSource dataSource;
@@ -111,6 +111,19 @@ class MovimentacaoRepositoryJdbcTest {
         assertTrue(historico.get(1).id() > historico.get(2).id());
         assertEquals(1, saidas.size());
         assertEquals(TipoMovimentacao.SAIDA, saidas.getFirst().tipo());
+    }
+
+    @Test
+    void rejeitaDirecaoIncompativelComTipo() {
+        assertThrows(IllegalArgumentException.class,
+                () -> repository.registrar("P1", TipoMovimentacao.ENTRADA,
+                        DirecaoMovimentacao.SAIDA, 1, MotivoMovimentacao.COMPRA, null, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> repository.registrar("P1", TipoMovimentacao.SAIDA,
+                        DirecaoMovimentacao.ENTRADA, 1, MotivoMovimentacao.VENDA, null, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> repository.registrar("P1", TipoMovimentacao.TRANSFERENCIA,
+                        DirecaoMovimentacao.ENTRADA, 1, MotivoMovimentacao.TRANSFERENCIA, null, "P2"));
     }
 
     private MovimentacaoEstoque registrar(
