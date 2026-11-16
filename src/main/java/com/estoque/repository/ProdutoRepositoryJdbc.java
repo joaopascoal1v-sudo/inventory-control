@@ -1,8 +1,5 @@
 package com.estoque.repository;
 
-import com.estoque.database.DatabaseConnection;
-import com.estoque.entities.Produto;
-
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -11,15 +8,18 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import com.estoque.database.DatabaseConnection;
+import com.estoque.entities.Produto;
+
 public class ProdutoRepositoryJdbc implements ProdutoRepository {
     private static final String INSERT =
-            "INSERT INTO produtos (codigo, nome, preco, quantidade) VALUES (?, ?, ?, ?)";
+            "INSERT INTO produtos (codigo, nome, preco, quantidade, estoque_minimo) VALUES (?, ?, ?, ?, ?)";
     private static final String SELECT_ALL =
-            "SELECT codigo, nome, preco, quantidade FROM produtos ORDER BY codigo";
+            "SELECT codigo, nome, preco, quantidade, estoque_minimo FROM produtos ORDER BY codigo";
     private static final String SELECT_BY_CODE =
-            "SELECT codigo, nome, preco, quantidade FROM produtos WHERE codigo = ?";
+            "SELECT codigo, nome, preco, quantidade, estoque_minimo FROM produtos WHERE codigo = ?";
     private static final String UPDATE =
-            "UPDATE produtos SET nome = ?, preco = ?, quantidade = ? WHERE codigo = ?";
+            "UPDATE produtos SET nome = ?, preco = ?, quantidade = ?, estoque_minimo = ? WHERE codigo = ?";
     private static final String DELETE = "DELETE FROM produtos WHERE codigo = ?";
 
     @Override
@@ -30,6 +30,7 @@ public class ProdutoRepositoryJdbc implements ProdutoRepository {
             statement.setString(2, produto.getNome());
             statement.setBigDecimal(3, produto.getPreco());
             statement.setInt(4, produto.getQuantidade());
+            statement.setInt(5, produto.getEstoqueMinimo());
             statement.executeUpdate();
         }
     }
@@ -68,7 +69,8 @@ public class ProdutoRepositoryJdbc implements ProdutoRepository {
             statement.setString(1, produto.getNome());
             statement.setBigDecimal(2, produto.getPreco());
             statement.setInt(3, produto.getQuantidade());
-            statement.setString(4, produto.getCodigo());
+            statement.setInt(4, produto.getEstoqueMinimo());
+            statement.setString(5, produto.getCodigo());
             return statement.executeUpdate() > 0;
         }
     }
@@ -87,6 +89,7 @@ public class ProdutoRepositoryJdbc implements ProdutoRepository {
                 resultado.getString("codigo"),
                 resultado.getString("nome"),
                 resultado.getBigDecimal("preco"),
-                resultado.getInt("quantidade"));
+                resultado.getInt("quantidade"),
+                resultado.getInt("estoque_minimo"));
     }
 }

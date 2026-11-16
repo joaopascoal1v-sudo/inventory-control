@@ -7,8 +7,13 @@ public class Produto {
     private String nome;
     private BigDecimal preco;
     private int quantidade;
+    private int estoqueMinimo;
 
     public Produto(String codigo, String nome, BigDecimal preco, int quantidade) {
+        this(codigo, nome, preco, quantidade, 0);
+    }
+
+    public Produto(String codigo, String nome, BigDecimal preco, int quantidade, int estoqueMinimo) {
         if (codigo == null || codigo.trim().isEmpty()) {
             throw new IllegalArgumentException("O codigo do produto e obrigatorio.");
         }
@@ -21,11 +26,15 @@ public class Produto {
         if (quantidade < 0) {
             throw new IllegalArgumentException("A quantidade nao pode ser negativa.");
         }
+        if (estoqueMinimo < 0) {
+            throw new IllegalArgumentException("O estoque minimo nao pode ser negativo.");
+        }
 
         this.codigo = codigo.trim();
         this.nome = nome.trim();
         this.preco = preco;
         this.quantidade = quantidade;
+        this.estoqueMinimo = estoqueMinimo;
     }
 
     public String getCodigo() {
@@ -44,6 +53,10 @@ public class Produto {
         return quantidade;
     }
 
+    public int getEstoqueMinimo() {
+        return estoqueMinimo;
+    }
+
     public void atualizar(String nome, BigDecimal preco) {
         if (nome == null || nome.trim().isEmpty()) {
             throw new IllegalArgumentException("O nome do produto e obrigatorio.");
@@ -53,6 +66,13 @@ public class Produto {
         }
         this.nome = nome.trim();
         this.preco = preco;
+    }
+
+    public void atualizarEstoqueMinimo(int estoqueMinimo) {
+        if (estoqueMinimo < 0) {
+            throw new IllegalArgumentException("O estoque minimo nao pode ser negativo.");
+        }
+        this.estoqueMinimo = estoqueMinimo;
     }
 
     public void adicionarEstoque(int quantidade) {

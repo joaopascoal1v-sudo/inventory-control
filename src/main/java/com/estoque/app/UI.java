@@ -1,12 +1,11 @@
 package com.estoque.app;
 
-import com.estoque.entities.Fornecedor;
-import com.estoque.entities.PerfilAcesso;
-import com.estoque.entities.Produto;
-import com.estoque.entities.Usuario;
-import com.estoque.service.EstoqueService;
-import com.estoque.service.FornecedorService;
-import com.estoque.service.UsuarioService;
+import java.awt.BorderLayout;
+import java.awt.FlowLayout;
+import java.awt.GridLayout;
+import java.math.BigDecimal;
+import java.sql.SQLException;
+import java.util.Arrays;
 
 import javax.swing.JButton;
 import javax.swing.JFrame;
@@ -19,28 +18,35 @@ import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.table.DefaultTableModel;
-import java.awt.BorderLayout;
-import java.awt.FlowLayout;
-import java.awt.GridLayout;
-import java.math.BigDecimal;
-import java.sql.SQLException;
-import java.util.Arrays;
+
+import com.estoque.entities.Fornecedor;
+import com.estoque.entities.MotivoMovimentacao;
+import com.estoque.entities.PerfilAcesso;
+import com.estoque.entities.Produto;
+import com.estoque.entities.TipoMovimentacao;
+import com.estoque.entities.Usuario;
+import com.estoque.service.EstoqueService;
+import com.estoque.service.FornecedorService;
+import com.estoque.service.UsuarioService;
 
 public class UI {
     private final EstoqueService estoque;
     private final FornecedorService fornecedores;
     private final UsuarioService usuarios;
+    private Usuario usuarioAutenticado;
     private final JTextField codigo = new JTextField();
     private final JTextField nomeProduto = new JTextField();
     private final JTextField preco = new JTextField();
     private final JTextField quantidade = new JTextField();
+    private final JTextField estoqueMinimo = new JTextField("0");
+    private final JLabel alertaEstoque = new JLabel(" ");
     private final JTextField nomeFornecedor = new JTextField();
     private final JTextField cnpjFornecedor = new JTextField();
     private final JTextField telefoneFornecedor = new JTextField();
     private final JTextField emailFornecedor = new JTextField();
     private final JTextField enderecoFornecedor = new JTextField();
     private final DefaultTableModel modeloProdutos = new DefaultTableModel(
-            new Object[]{"Codigo", "Nome", "Preco", "Quantidade"}, 0) {
+            new Object[]{"Codigo", "Nome", "Preco", "Quantidade", "Estoque minimo"}, 0) {
         @Override
         public boolean isCellEditable(int linha, int coluna) {
             return false;
@@ -68,6 +74,7 @@ public class UI {
         if (usuario == null) {
             return;
         }
+        usuarioAutenticado = usuario;
 
         JFrame janela = new JFrame("Controle de estoque - " + usuario.getNome()
                 + " (" + nomePerfil(usuario.getPerfil()) + ")");
@@ -201,22 +208,27 @@ public class UI {
 
         JPanel cadastro = new JPanel(new BorderLayout(0, 6));
         cadastro.add(criarFormularioProduto(), BorderLayout.NORTH);
-        cadastro.add(criarBotoesProduto(), BorderLayout.SOUTH);
+        JPanel acoes = new JPanel(new BorderLayout());
+        acoes.add(criarBotoesProduto(), BorderLayout.NORTH);
+        acoes.add(alertaEstoque, BorderLayout.SOUTH);
+        cadastro.add(acoes, BorderLayout.SOUTH);
         painel.add(cadastro, BorderLayout.NORTH);
         painel.add(new JScrollPane(tabela), BorderLayout.CENTER);
         return painel;
     }
 
     private JPanel criarFormularioProduto() {
-        JPanel formulario = new JPanel(new GridLayout(2, 4, 8, 4));
+        JPanel formulario = new JPanel(new GridLayout(2, 5, 8, 4));
         formulario.add(new JLabel("Codigo"));
         formulario.add(new JLabel("Nome"));
         formulario.add(new JLabel("Preco"));
         formulario.add(new JLabel("Quantidade"));
+        formulario.add(new JLabel("Estoque minimo"));
         formulario.add(codigo);
         formulario.add(nomeProduto);
         formulario.add(preco);
         formulario.add(quantidade);
+        formulario.add(estoqueMinimo);
         return formulario;
     }
 
@@ -269,21 +281,25 @@ public class UI {
                 lerCodigo(),
                 nomeProduto.getText(),
                 lerPreco(),
-                lerQuantidade())), "Produto cadastrado.");
+                lerQuantidade(),
+                lerEstoqueMinimo())), "Produto cadastrado.");
     }
 
     private void atualizarProduto() {
-        executarAcao(() -> estoque.atualizar(lerCodigo(), nomeProduto.getText(), lerPreco()),
+        executarAcao(() -> estoque.atualizar(
+                lerCodigo(), nomeProduto.getText(), lerPreco(), lerEstoqueMinimo()),
                 "Produto atualizado.");
     }
 
     private void adicionarEstoque() {
-        executarAcao(() -> estoque.adicionarEstoque(lerCodigo(), lerQuantidade()),
+        executarAcao(() -> estoque.registrarMovimentacao(lerCodigo(), TipoMovimentacao.ENTRADA,
+                null, lerQuantidade(), MotivoMovimentacao.COMPRA, usuarioAutenticado.getId(), null),
                 "Entrada registrada.");
     }
 
     private void retirarEstoque() {
-        executarAcao(() -> estoque.retirarEstoque(lerCodigo(), lerQuantidade()),
+        executarAcao(() -> estoque.registrarMovimentacao(lerCodigo(), TipoMovimentacao.SAIDA,
+                null, lerQuantidade(), MotivoMovimentacao.VENDA, usuarioAutenticado.getId(), null),
                 "Saida registrada.");
     }
 
@@ -386,9 +402,13 @@ public class UI {
                     produto.getCodigo(),
                     produto.getNome(),
                     produto.getPreco().toPlainString(),
-                    produto.getQuantidade()
+                    produto.getQuantidade(),
+                    produto.getEstoqueMinimo()
             });
         }
+        var alertas = estoque.listarAlertasEstoqueMinimo();
+        alertaEstoque.setText(alertas.isEmpty() ? " " : "Estoque abaixo do minimo: "
+                + String.join(", ", alertas.stream().map(Produto::getNome).toList()));
     }
 
     private void atualizarTabelaFornecedores() {
@@ -413,6 +433,7 @@ public class UI {
         nomeProduto.setText(modeloProdutos.getValueAt(linha, 1).toString());
         preco.setText(modeloProdutos.getValueAt(linha, 2).toString());
         quantidade.setText(modeloProdutos.getValueAt(linha, 3).toString());
+        estoqueMinimo.setText(modeloProdutos.getValueAt(linha, 4).toString());
     }
 
     private String lerCodigo() {
@@ -427,11 +448,16 @@ public class UI {
         return Integer.parseInt(quantidade.getText().trim());
     }
 
+    private int lerEstoqueMinimo() {
+        return Integer.parseInt(estoqueMinimo.getText().trim());
+    }
+
     private void limparCamposProduto() {
         codigo.setText("");
         nomeProduto.setText("");
         preco.setText("");
         quantidade.setText("");
+        estoqueMinimo.setText("0");
     }
 
     private void limparCamposFornecedor() {
