@@ -286,11 +286,30 @@ public class MovimentacaoRepositoryJdbc implements MovimentacaoRepository {
 
         sql.append(" ORDER BY data_movimentacao DESC, id DESC");
 
+        return consultar(sql.toString(), parametros);
+    }
+
+    @Override
+    public List<MovimentacaoEstoque> listarUltimas(int limite) throws SQLException {
+        if (limite <= 0) {
+            throw new IllegalArgumentException(
+                    "O limite de movimentacoes deve ser maior que zero.");
+        }
+
+        return consultar(
+                HISTORY_SELECT + " ORDER BY data_movimentacao DESC, id DESC LIMIT ?",
+                List.of(limite));
+    }
+
+    private List<MovimentacaoEstoque> consultar(
+            String sql,
+            List<Object> parametros) throws SQLException {
+
         List<MovimentacaoEstoque> movimentos = new ArrayList<>();
 
         try (Connection connection = connectionProvider.getConnection();
              PreparedStatement statement =
-                     connection.prepareStatement(sql.toString())) {
+                     connection.prepareStatement(sql)) {
 
             for (int indice = 0; indice < parametros.size(); indice++) {
                 statement.setObject(

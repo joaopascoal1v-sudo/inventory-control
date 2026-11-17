@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="pt-BR" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Entrar')}"></head>
+<body class="pagina-centralizada">
+<main class="cartao-central">
+    <div class="marca marca-escura">
+        <span class="marca-logo"><svg th:replace="~{fragments/layout :: iconeCaixa}"></svg></span>
+        <span>Controle de Estoque</span>
+    </div>
+
+    <h1>Entrar no painel</h1>
+    <p class="subtitulo">Use o mesmo e-mail e senha do aplicativo desktop.</p>
+
+    <div th:if="${saiu}" class="aviso aviso-sucesso" role="status">Você saiu do painel.</div>
+    <div th:if="${expirou}" class="aviso aviso-atencao" role="status">Sua sessão expirou. Entre novamente.</div>
+    <div th:if="${erro}" class="aviso aviso-perigo" role="alert" th:text="${erro}">Erro</div>
+    <div th:if="${semUsuarios}" class="aviso aviso-atencao">
+        Nenhum usuário cadastrado ainda. Abra o aplicativo desktop para cadastrar o administrador inicial.
+    </div>
+
+    <form class="formulario" method="post" th:action="@{/login}">
+        <label for="email">E-mail</label>
+        <input id="email" name="email" type="email" autocomplete="username" required autofocus
+               th:value="${email}">
+
+        <label for="senha">Senha</label>
+        <input id="senha" name="senha" type="password" autocomplete="current-password" required>
+
+        <button type="submit" class="botao botao-primario botao-bloco">Entrar</button>
+    </form>
+</main>
+</body>
+</html>

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="pt-BR" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Movimentações')}"></head>
+<body>
+<header th:replace="~{fragments/layout :: cabecalho}"></header>
+<div th:replace="~{fragments/layout :: alertaGlobal}"></div>
+
+<main class="conteudo">
+    <div class="cabecalho-pagina">
+        <div>
+            <h1>Movimentações</h1>
+            <p class="subtitulo">Histórico de entradas e saídas, da mais recente para a mais antiga</p>
+        </div>
+    </div>
+
+    <section class="painel">
+        <form class="filtros" method="get" th:action="@{/movimentacoes}">
+            <div class="campo">
+                <label for="produto">Produto</label>
+                <select id="produto" name="produto">
+                    <option value="">Todos os produtos</option>
+                    <option th:each="p : ${produtos}" th:value="${p.codigo}"
+                            th:selected="${p.codigo == filtro.produto}"
+                            th:text="${p.codigo} + ' — ' + ${p.nome}">Produto</option>
+                </select>
+            </div>
+            <div class="campo">
+                <label for="tipo">Tipo</label>
+                <select id="tipo" name="tipo">
+                    <option value="">Todos os tipos</option>
+                    <option th:each="t : ${tipos}" th:value="${t.valor}"
+                            th:selected="${t.valor == filtro.tipo}" th:text="${t.rotulo}">Tipo</option>
+                </select>
+            </div>
+            <div class="campo">
+                <label for="inicio">De</label>
+                <input id="inicio" name="inicio" type="date" th:value="${filtro.inicio}">
+            </div>
+            <div class="campo">
+                <label for="fim">Até</label>
+                <input id="fim" name="fim" type="date" th:value="${filtro.fim}">
+            </div>
+            <div class="campo campo-acoes">
+                <button type="submit" class="botao botao-primario">Filtrar</button>
+                <a th:if="${filtrando}" class="link-acao" th:href="@{/movimentacoes}">Limpar filtros</a>
+            </div>
+        </form>
+
+        <div th:unless="${erros.isEmpty()}" class="aviso aviso-perigo" role="alert">
+            <p th:each="erro : ${erros}" th:text="${erro}">Erro</p>
+        </div>
+
+        <th:block th:if="${erros.isEmpty()}">
+            <p class="resumo-consulta">
+                <strong th:text="${historico.totalEncontrado == 1} ? '1 movimentação encontrada' : ${#numbers.formatInteger(historico.totalEncontrado, 1, 'POINT')} + ' movimentações encontradas'">0</strong>
+                <span th:if="${historico.truncado()}"
+                      th:text="'· exibindo as ' + ${limiteHistorico} + ' mais recentes; refine os filtros para ver as demais'"></span>
+            </p>
+
+            <div th:if="${historico.itens.isEmpty()}" class="vazio">
+                <p th:text="${filtrando} ? 'Nenhuma movimentação corresponde aos filtros informados.' : 'Nenhuma movimentação registrada ainda.'">Vazio</p>
+            </div>
+
+            <div th:unless="${historico.itens.isEmpty()}" class="tabela-rolagem">
+                <table class="tabela">
+                    <thead>
+                    <tr>
+                        <th scope="col">Data</th>
+                        <th scope="col">Produto</th>
+                        <th scope="col">Tipo</th>
+                        <th scope="col">Motivo</th>
+                        <th scope="col" class="num">Quantidade</th>
+                        <th scope="col" class="num">Saldo</th>
+                        <th scope="col">Observação</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="m : ${historico.itens}" th:classappend="${m.estornada()} ? 'linha-estornada'">
+                        <td class="data-celula">
+                            <time th:datetime="${#temporals.format(m.data, 'yyyy-MM-dd HH:mm')}"
+                                  th:text="${#temporals.format(m.data, 'dd/MM/yyyy HH:mm')}">data</time>
+                            <span class="produto-codigo" th:text="'#' + ${m.id}">#0</span>
+                        </td>
+                        <td>
+                            <span class="produto-nome" th:text="${m.nomeProduto}">Produto</span>
+                            <span class="produto-codigo" th:text="${m.codigoProduto}">COD</span>
+                        </td>
+                        <td>
+                            <span class="tipo" th:classappend="${m.estorno()} ? 'tipo-estorno' : (${m.entrada()} ? 'tipo-entrada' : 'tipo-saida')"
+                                  th:text="${m.rotuloOperacao()}">Tipo</span>
+                        </td>
+                        <td th:text="${m.rotuloMotivo()}">Motivo</td>
+                        <td class="num quantidade-movimento"
+                            th:classappend="${m.entrada()} ? 'quantidade-entrada' : 'quantidade-saida'"
+                            th:text="${m.quantidadeComSinal()}">+0</td>
+                        <td class="num saldo-celula">
+                            <span class="texto-suave" th:text="${m.saldoAntes}">0</span>
+                            <span aria-label="para">→</span>
+                            <strong th:text="${m.saldoDepois}">0</strong>
+                        </td>
+                        <td>
+                            <span th:if="${m.estornada()}" class="etiqueta"
+                                  th:text="'Estornada por #' + ${m.estornadaPorId}">Estornada</span>
+                            <span th:if="${m.estorno()}" class="etiqueta"
+                                  th:text="'Estorno de #' + ${m.estornoDeId}">Estorno</span>
+                            <span th:if="${m.codigoDestino != null and !m.estorno()}" class="texto-suave"
+                                  th:text="(${m.entrada()} ? 'Origem: ' : 'Destino: ') + ${m.codigoDestino}">Destino</span>
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </th:block>
+    </section>
+</main>
+
+<footer th:replace="~{fragments/layout :: rodape}"></footer>
+</body>
+</html>

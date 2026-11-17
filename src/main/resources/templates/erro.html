@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html lang="pt-BR" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head(${titulo})}"></head>
+<body class="pagina-centralizada">
+<main class="cartao-central cartao-erro">
+    <p class="erro-codigo" th:text="${status}">404</p>
+    <h1 th:text="${titulo}">Erro</h1>
+    <p class="subtitulo" th:text="${mensagem}">Mensagem</p>
+    <a class="botao botao-primario" th:href="@{/dashboard}">Voltar ao dashboard</a>
+</main>
+</body>
+</html>

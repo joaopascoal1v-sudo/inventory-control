@@ -28,5 +28,8 @@ public interface MovimentacaoRepository {
             LocalDate dataInicio,
             LocalDate dataFim) throws SQLException;
 
+    /** Retorna as movimentacoes mais recentes, da mais nova para a mais antiga. */
+    List<MovimentacaoEstoque> listarUltimas(int limite) throws SQLException;
+
     List<ResumoEstoque> resumir() throws SQLException;
 }
