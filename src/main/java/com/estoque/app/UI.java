@@ -30,6 +30,8 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPasswordField;
 import javax.swing.JScrollPane;
+import javax.swing.RowFilter;
+import javax.swing.table.TableRowSorter;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
@@ -53,6 +55,7 @@ public class UI {
     private final JTextField preco = new JTextField();
     private final JTextField quantidade = new JTextField();
     private final JTextField estoqueMinimo = new JTextField("0");
+    private final JTextField buscaProduto = new JTextField(24);
 
     private final JLabel alertaEstoque = new JLabel(" ");
 
@@ -342,48 +345,87 @@ public class UI {
 
     private JPanel criarPainelProdutos() {
 
-        JPanel painel = new JPanel(
-                new BorderLayout(0, 6));
+        JPanel painel = new JPanel(new BorderLayout(10, 10));
 
-        JTable tabela = new JTable(modeloProdutos);
-
-        tabela.getSelectionModel().addListSelectionListener(
-                evento -> {
-                    if (!evento.getValueIsAdjusting()
-                            && tabela.getSelectedRow() >= 0) {
-                        preencherCamposProduto(
-                                tabela.getSelectedRow());
-                    }
-                });
-
-        JPanel cadastro = new JPanel(
-                new BorderLayout(0, 6));
-
-        cadastro.add(
-                criarFormularioProduto(),
-                BorderLayout.NORTH);
+        JPanel cadastro = new JPanel(new BorderLayout(8, 8));
+        cadastro.add(criarFormularioProduto(), BorderLayout.CENTER);
 
         JPanel acoes = new JPanel(new BorderLayout());
-
-        acoes.add(
-                criarBotoesProduto(),
-                BorderLayout.NORTH);
-
-        acoes.add(
-                alertaEstoque,
-                BorderLayout.SOUTH);
+        acoes.add(criarBotoesProduto(), BorderLayout.NORTH);
+        acoes.add(alertaEstoque, BorderLayout.SOUTH);
 
         cadastro.add(acoes, BorderLayout.SOUTH);
 
-        painel.add(cadastro, BorderLayout.NORTH);
+        JTable tabela = new JTable(modeloProdutos);
+        tabela.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
 
-        painel.add(
-                new JScrollPane(tabela),
-                BorderLayout.CENTER);
+        TableRowSorter<DefaultTableModel> ordenador =
+                new TableRowSorter<>(modeloProdutos);
+
+        tabela.setRowSorter(ordenador);
+
+        tabela.getSelectionModel().addListSelectionListener(evento -> {
+            if (!evento.getValueIsAdjusting()
+                    && tabela.getSelectedRow() >= 0) {
+
+                int linha = tabela.convertRowIndexToModel(
+                        tabela.getSelectedRow());
+
+                preencherCamposProduto(linha);
+            }
+        });
+
+        JPanel pesquisa = new JPanel(new BorderLayout(8, 8));
+        pesquisa.add(new JLabel("Buscar produto:"), BorderLayout.WEST);
+        pesquisa.add(buscaProduto, BorderLayout.CENTER);
+
+        JButton limparBusca = new JButton("Limpar busca");
+        limparBusca.addActionListener(evento -> buscaProduto.setText(""));
+        pesquisa.add(limparBusca, BorderLayout.EAST);
+
+        buscaProduto.getDocument().addDocumentListener(
+                new javax.swing.event.DocumentListener() {
+
+            private void filtrar() {
+                String termo = buscaProduto.getText().trim();
+
+                if (termo.isEmpty()) {
+                    ordenador.setRowFilter(null);
+                } else {
+                    ordenador.setRowFilter(
+                            RowFilter.regexFilter(
+                                    "(?i)" + java.util.regex.Pattern.quote(termo)));
+                }
+            }
+
+            @Override
+            public void insertUpdate(
+                    javax.swing.event.DocumentEvent evento) {
+                filtrar();
+            }
+
+            @Override
+            public void removeUpdate(
+                    javax.swing.event.DocumentEvent evento) {
+                filtrar();
+            }
+
+            @Override
+            public void changedUpdate(
+                    javax.swing.event.DocumentEvent evento) {
+                filtrar();
+            }
+        });
+
+        JPanel topo = new JPanel(new BorderLayout(8, 8));
+        topo.add(cadastro, BorderLayout.CENTER);
+        topo.add(pesquisa, BorderLayout.SOUTH);
+
+        painel.add(topo, BorderLayout.NORTH);
+        painel.add(new JScrollPane(tabela), BorderLayout.CENTER);
 
         return painel;
     }
-
     private JPanel criarFormularioProduto() {
 
         JPanel formulario = new JPanel(
