@@ -13,6 +13,49 @@
         </div>
     </div>
 
+    <div th:if="${cadastrado}" class="aviso aviso-sucesso" role="status" style="margin-bottom: 16px;">
+        Produto cadastrado com sucesso!
+    </div>
+    <div th:if="${movimentado}" class="aviso aviso-sucesso" role="status" style="margin-bottom: 16px;">
+        Estoque atualizado com sucesso!
+    </div>
+    <div th:if="${removido}" class="aviso aviso-sucesso" role="status" style="margin-bottom: 16px;">
+        Produto removido com sucesso!
+    </div>
+    <div th:if="${erroCadastroProduto}" class="aviso aviso-perigo" role="alert" style="margin-bottom: 16px;"
+         th:text="${erroCadastroProduto}">Erro</div>
+
+    <section class="painel" style="margin-bottom: 20px;">
+        <div class="painel-cabecalho">
+            <h2>Cadastrar novo produto</h2>
+        </div>
+        <form class="filtros" method="post" th:action="@{/produtos}">
+            <div class="campo">
+                <label for="novoCodigo">Código</label>
+                <input id="novoCodigo" name="codigo" type="text" required placeholder="Ex: MED025">
+            </div>
+            <div class="campo">
+                <label for="novoNome">Medicamento / Produto</label>
+                <input id="novoNome" name="nome" type="text" required placeholder="Ex: Dipirona 500mg">
+            </div>
+            <div class="campo">
+                <label for="novoPreco">Preço (R$)</label>
+                <input id="novoPreco" name="preco" type="text" required placeholder="Ex: 12.90">
+            </div>
+            <div class="campo">
+                <label for="novaQtd">Quantidade inicial</label>
+                <input id="novaQtd" name="quantidade" type="number" min="0" value="1" required>
+            </div>
+            <div class="campo">
+                <label for="novoMinimo">Estoque mínimo</label>
+                <input id="novoMinimo" name="estoqueMinimo" type="number" min="0" value="5" required>
+            </div>
+            <div class="campo campo-acoes">
+                <button type="submit" class="botao botao-primario">＋ Cadastrar produto</button>
+            </div>
+        </form>
+    </section>
+
     <section class="painel">
         <div class="barra-filtros">
             <nav class="abas" aria-label="Filtrar por situação">
@@ -61,6 +104,7 @@
                     <th scope="col" class="num">Mínimo</th>
                     <th scope="col">Cobertura do mínimo</th>
                     <th scope="col">Situação</th>
+                    <th scope="col">Ações rápidas</th>
                 </tr>
                 </thead>
                 <tbody>
@@ -81,6 +125,26 @@
                         <span th:unless="${p.possuiMinimo()}" class="texto-suave">sem mínimo definido</span>
                     </td>
                     <td><span th:replace="~{fragments/layout :: selo(${p.situacao})}"></span></td>
+                    <td>
+                        <div style="display: inline-flex; gap: 6px; align-items: center;">
+                            <form method="post" th:action="@{/produtos/movimentar}" style="margin:0;">
+                                <input type="hidden" name="codigo" th:value="${p.codigo}">
+                                <input type="hidden" name="tipo" value="ENTRADA">
+                                <input type="hidden" name="quantidade" value="1">
+                                <button type="submit" class="botao botao-secundario" title="Adicionar +1 unidade" style="min-height: 30px; padding: 4px 10px;">+1</button>
+                            </form>
+                            <form method="post" th:action="@{/produtos/movimentar}" style="margin:0;">
+                                <input type="hidden" name="codigo" th:value="${p.codigo}">
+                                <input type="hidden" name="tipo" value="SAIDA">
+                                <input type="hidden" name="quantidade" value="1">
+                                <button type="submit" class="botao botao-secundario" title="Retirar -1 unidade" style="min-height: 30px; padding: 4px 10px;">-1</button>
+                            </form>
+                            <form method="post" th:action="@{/produtos/remover}" style="margin:0;">
+                                <input type="hidden" name="codigo" th:value="${p.codigo}">
+                                <button type="submit" class="botao botao-secundario" title="Excluir produto" style="min-height: 30px; padding: 4px 10px;">🗑</button>
+                            </form>
+                        </div>
+                    </td>
                 </tr>
                 </tbody>
             </table>

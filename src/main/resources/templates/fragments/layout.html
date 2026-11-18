@@ -39,6 +39,8 @@
             </a>
             <a th:href="@{/movimentacoes}" th:classappend="${paginaAtiva == 'movimentacoes'} ? 'ativo'"
                th:attr="aria-current=${paginaAtiva == 'movimentacoes'} ? 'page' : null">Movimentações</a>
+            <a th:href="@{/fornecedores}" th:classappend="${paginaAtiva == 'fornecedores'} ? 'ativo'"
+               th:attr="aria-current=${paginaAtiva == 'fornecedores'} ? 'page' : null">Fornecedores</a>
         </nav>
         <div class="sessao">
             <span class="sessao-usuario">

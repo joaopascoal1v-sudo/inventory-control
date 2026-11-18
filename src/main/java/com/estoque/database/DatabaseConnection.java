@@ -1,5 +1,7 @@
 package com.estoque.database;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -7,7 +9,7 @@ import java.sql.Statement;
 
 public final class DatabaseConnection {
 
-    private static final String DEFAULT_URL =
+    private static final String DEFAULT_MYSQL_URL =
             "jdbc:mysql://localhost:3306/estoque?createDatabaseIfNotExist=true";
 
     private static final String CREATE_PRODUCTS_TABLE =
@@ -76,10 +78,14 @@ public final class DatabaseConnection {
     }
 
     public static Connection getConnection() throws SQLException {
+        String url = resolveUrl();
+        if (url.startsWith("jdbc:h2:")) {
+            String user = environmentOrDefault("DB_USER", "sa");
+            String password = environmentOrDefault("DB_PASSWORD", "");
+            return DriverManager.getConnection(url, user, password);
+        }
 
-        String url = environmentOrDefault("DB_URL", DEFAULT_URL);
         String user = environmentOrDefault("DB_USER", null);
-
         if (user == null) {
             throw new SQLException(
                     "Defina a variavel de ambiente DB_USER para conectar ao MySQL."
@@ -87,12 +93,75 @@ public final class DatabaseConnection {
         }
 
         String password = System.getenv("DB_PASSWORD");
-
         if (password == null) {
             password = "";
         }
 
         return DriverManager.getConnection(url, user, password);
+    }
+
+    private static String resolveUrl() {
+        String envUrl = environmentOrDefault("DB_URL", null);
+        if (envUrl != null) {
+            return envUrl;
+        }
+        String engine = environmentOrDefault("DB_ENGINE", "h2");
+        if ("mysql".equalsIgnoreCase(engine)) {
+            return DEFAULT_MYSQL_URL;
+        }
+        Path dataDir = resolveLocalDataDirectory();
+        if (dataDir == null) {
+            return "jdbc:h2:mem:farmacia_db;MODE=MySQL;DATABASE_TO_LOWER=TRUE;CASE_INSENSITIVE_IDENTIFIERS=TRUE;DB_CLOSE_DELAY=-1";
+        }
+        String filePath = dataDir.resolve("farmacia_db").toAbsolutePath().toString().replace('\\', '/');
+        return "jdbc:h2:file:" + filePath
+                + ";MODE=MySQL;DATABASE_TO_LOWER=TRUE;CASE_INSENSITIVE_IDENTIFIERS=TRUE;DB_CLOSE_DELAY=-1";
+    }
+
+    private static Path resolveLocalDataDirectory() {
+        String customDir = environmentOrDefault("DB_DATA_DIR", null);
+        if (customDir != null) {
+            Path dir = Path.of(customDir);
+            if (diretorioGravavel(dir)) {
+                return dir;
+            }
+        }
+        String localAppData = environmentOrDefault("LOCALAPPDATA", null);
+        if (localAppData != null) {
+            Path candidate = Path.of(localAppData, "Inventory Control", "data");
+            if (diretorioGravavel(candidate)) {
+                return candidate;
+            }
+        }
+        Path workspaceData = Path.of("data").toAbsolutePath();
+        if (diretorioGravavel(workspaceData)) {
+            return workspaceData;
+        }
+        Path tempFallback = Path.of(System.getProperty("java.io.tmpdir", "."), "inventory-control-data");
+        if (diretorioGravavel(tempFallback)) {
+            return tempFallback;
+        }
+        return null;
+    }
+
+    private static boolean diretorioGravavel(Path dir) {
+        try {
+            Files.createDirectories(dir);
+            Path probe = dir.resolve(".write-test");
+            Files.writeString(probe, "ok");
+            boolean canWrite = Files.isWritable(probe);
+            Files.deleteIfExists(probe);
+            if (!canWrite) {
+                return false;
+            }
+            Path dbFile = dir.resolve("farmacia_db.mv.db");
+            if (Files.exists(dbFile) && !Files.isWritable(dbFile)) {
+                return false;
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public static void initialize() throws SQLException {

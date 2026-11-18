@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="pt-BR" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Fornecedores')}"></head>
+<body>
+<header th:replace="~{fragments/layout :: cabecalho}"></header>
+<div th:replace="~{fragments/layout :: alertaGlobal}"></div>
+
+<main class="conteudo">
+    <div class="cabecalho-pagina">
+        <div>
+            <h1>Fornecedores</h1>
+            <p class="subtitulo">Gerencie as empresas fornecedoras do seu estoque</p>
+        </div>
+    </div>
+
+    <div th:if="${cadastrado}" class="aviso aviso-sucesso" role="status" style="margin-bottom: 16px;">
+        Fornecedor cadastrado com sucesso!
+    </div>
+    <div th:if="${erro}" class="aviso aviso-perigo" role="alert" style="margin-bottom: 16px;"
+         th:text="${erro}">Erro</div>
+
+    <section class="painel" style="margin-bottom: 20px;">
+        <div class="painel-cabecalho">
+            <h2>Cadastrar novo fornecedor</h2>
+        </div>
+        <form class="filtros" method="post" th:action="@{/fornecedores}">
+            <div class="campo">
+                <label for="nomeForn">Laboratório / Distribuidora *</label>
+                <input id="nomeForn" name="nome" type="text" required placeholder="Ex: Eurofarma / Medley">
+            </div>
+            <div class="campo">
+                <label for="cnpjForn">CNPJ (opcional)</label>
+                <input id="cnpjForn" name="cnpj" type="text" placeholder="00.000.000/0001-00">
+            </div>
+            <div class="campo">
+                <label for="telForn">Telefone</label>
+                <input id="telForn" name="telefone" type="text" placeholder="(11) 99999-0000">
+            </div>
+            <div class="campo">
+                <label for="emailForn">E-mail</label>
+                <input id="emailForn" name="email" type="email" placeholder="contato@empresa.com">
+            </div>
+            <div class="campo">
+                <label for="endForn">Endereço</label>
+                <input id="endForn" name="endereco" type="text" placeholder="Cidade / Estado">
+            </div>
+            <div class="campo campo-acoes">
+                <button type="submit" class="botao botao-primario">＋ Salvar fornecedor</button>
+            </div>
+        </form>
+    </section>
+
+    <section class="painel">
+        <div class="painel-cabecalho">
+            <h2>Fornecedores cadastrados</h2>
+        </div>
+
+        <div th:if="${fornecedores.isEmpty()}" class="vazio">
+            <p>Nenhum fornecedor cadastrado ainda.</p>
+        </div>
+
+        <div th:unless="${fornecedores.isEmpty()}" class="tabela-rolagem">
+            <table class="tabela">
+                <thead>
+                <tr>
+                    <th scope="col">Empresa / Nome</th>
+                    <th scope="col">CNPJ</th>
+                    <th scope="col">Telefone</th>
+                    <th scope="col">E-mail</th>
+                    <th scope="col">Endereço</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="f : ${fornecedores}">
+                    <td><strong th:text="${f.nome}">Empresa</strong></td>
+                    <td class="produto-codigo-celula" th:text="${f.cnpj != null and !f.cnpj.isEmpty()} ? ${f.cnpj} : '—'">—</td>
+                    <td th:text="${f.telefone != null and !f.telefone.isEmpty()} ? ${f.telefone} : '—'">—</td>
+                    <td th:text="${f.email != null and !f.email.isEmpty()} ? ${f.email} : '—'">—</td>
+                    <td th:text="${f.endereco != null and !f.endereco.isEmpty()} ? ${f.endereco} : '—'">—</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+</main>
+
+<footer th:replace="~{fragments/layout :: rodape}"></footer>
+</body>
+</html>

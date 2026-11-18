@@ -9,10 +9,41 @@
     <div class="cabecalho-pagina">
         <div>
             <h1>Dashboard</h1>
-            <p class="subtitulo">Visão geral do estoque</p>
+            <p class="subtitulo">Visão geral do estoque em tempo real</p>
         </div>
-        <a class="botao botao-secundario" th:href="@{/dashboard}">Atualizar</a>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <a class="botao botao-secundario" th:href="@{/relatorios/pdf}">📄 Baixar PDF</a>
+            <a class="botao botao-secundario" th:href="@{/relatorios/excel}">📊 Baixar Excel</a>
+            <a class="botao botao-primario" th:href="@{/dashboard}">↻ Atualizar</a>
+        </div>
     </div>
+
+    <section class="painel" style="margin-bottom: 20px;" th:if="${isAdmin}">
+        <div class="painel-cabecalho">
+            <h2>🌐 Disponibilizar Sistema para Outros Computadores (Rede e Web)</h2>
+            <span class="selo selo-normal"><span class="selo-ponto"></span>Painel do Administrador</span>
+        </div>
+        <div style="padding: 16px 20px; display: flex; flex-wrap: wrap; gap: 20px; align-items: center; justify-content: space-between;">
+            <div>
+                <p style="font-weight: 600; margin-bottom: 4px;">📶 Acesso na mesma Rede / Wi-Fi da Farmácia (Balcões e Caixas):</p>
+                <p class="texto-suave" style="font-size: 13px;">Abra este endereço no navegador de qualquer outro computador ou celular conectado no mesmo Wi-Fi:</p>
+                <p style="margin-top: 6px;"><code class="produto-codigo-celula" style="font-size: 15px; font-weight: 700; color: var(--primaria);" th:text="${linkRedeLocal}">http://localhost:8081/login</code></p>
+            </div>
+            <div style="border-left: 1px solid var(--borda); padding-left: 20px; min-width: 280px;">
+                <p style="font-weight: 600; margin-bottom: 4px;">🌍 Acesso Externo pela Internet (Qualquer Lugar / 4G):</p>
+                <th:block th:if="${linkInternetPublico != null}">
+                    <p class="texto-suave" style="font-size: 13px;">Link público HTTPS ativo (envie pelo WhatsApp):</p>
+                    <p style="margin-top: 6px;"><a th:href="${linkInternetPublico}" target="_blank" class="produto-codigo-celula" style="font-size: 15px; font-weight: 700;" th:text="${linkInternetPublico}">https://...</a></p>
+                </th:block>
+                <th:block th:if="${linkInternetPublico == null}">
+                    <p class="texto-suave" style="font-size: 13px; margin-bottom: 8px;">Gere um link HTTPS gratuito para acessar fora da farmácia:</p>
+                    <form method="post" th:action="@{/servidor/tunel}" style="margin: 0;">
+                        <button type="submit" class="botao botao-primario">🔗 Ativar Link Público na Web</button>
+                    </form>
+                </th:block>
+            </div>
+        </div>
+    </section>
 
     <section class="indicadores" aria-label="Indicadores do estoque">
         <article class="indicador">

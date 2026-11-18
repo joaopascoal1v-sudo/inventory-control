@@ -5,29 +5,72 @@
 <main class="cartao-central">
     <div class="marca marca-escura">
         <span class="marca-logo"><svg th:replace="~{fragments/layout :: iconeCaixa}"></svg></span>
-        <span>Controle de Estoque</span>
+        <span>Inventory Control</span>
     </div>
 
-    <h1>Entrar no painel</h1>
-    <p class="subtitulo">Use o mesmo e-mail e senha do aplicativo desktop.</p>
+    <th:block th:unless="${modoCadastro}">
+        <h1>Entrar no painel</h1>
+        <p class="subtitulo">Acesse o controle de estoque pelo navegador de qualquer lugar.</p>
 
-    <div th:if="${saiu}" class="aviso aviso-sucesso" role="status">Você saiu do painel.</div>
-    <div th:if="${expirou}" class="aviso aviso-atencao" role="status">Sua sessão expirou. Entre novamente.</div>
-    <div th:if="${erro}" class="aviso aviso-perigo" role="alert" th:text="${erro}">Erro</div>
-    <div th:if="${semUsuarios}" class="aviso aviso-atencao">
-        Nenhum usuário cadastrado ainda. Abra o aplicativo desktop para cadastrar o administrador inicial.
-    </div>
+        <div th:if="${saiu}" class="aviso aviso-sucesso" role="status">Você saiu do painel.</div>
+        <div th:if="${expirou}" class="aviso aviso-atencao" role="status">Sua sessão expirou. Entre novamente.</div>
+        <div th:if="${erro}" class="aviso aviso-perigo" role="alert" th:text="${erro}">Erro</div>
+        <div th:if="${semUsuarios}" class="aviso aviso-atencao">
+            Bem-vindo! Ainda não há usuários cadastrados. Clique em <strong>Criar minha conta</strong> abaixo para fazer o primeiro acesso.
+        </div>
 
-    <form class="formulario" method="post" th:action="@{/login}">
-        <label for="email">E-mail</label>
-        <input id="email" name="email" type="email" autocomplete="username" required autofocus
-               th:value="${email}">
+        <form class="formulario" method="post" th:action="@{/login}">
+            <label for="email">E-mail</label>
+            <input id="email" name="email" type="email" autocomplete="username" required autofocus
+                   placeholder="seu@email.com" th:value="${email}">
 
-        <label for="senha">Senha</label>
-        <input id="senha" name="senha" type="password" autocomplete="current-password" required>
+            <label for="senha">Senha</label>
+            <input id="senha" name="senha" type="password" autocomplete="current-password" required
+                   placeholder="Digite sua senha">
 
-        <button type="submit" class="botao botao-primario botao-bloco">Entrar</button>
-    </form>
+            <button type="submit" class="botao botao-primario botao-bloco">Entrar</button>
+        </form>
+
+        <hr style="border: 0; border-top: 1px solid var(--borda); margin: 22px 0 16px;">
+        <div style="text-align: center;">
+            <p class="texto-suave" style="margin-bottom: 10px; font-size: 14px;"
+               th:text="${semUsuarios} ? 'Configuração inicial do servidor:' : 'Novo funcionário ou primeiro acesso?'">Vai entrar pela primeira vez?</p>
+            <a class="botao botao-secundario botao-bloco" th:href="@{/cadastro}"
+               th:text="${semUsuarios} ? 'Cadastrar Administrador Principal' : 'Criar conta de Funcionário (1º Acesso)'">Criar minha conta (Primeiro acesso)</a>
+        </div>
+    </th:block>
+
+    <th:block th:if="${modoCadastro}">
+        <h1 th:text="${semUsuarios} ? 'Cadastrar Administrador' : 'Criar conta de Funcionário'">Criar minha conta</h1>
+        <p class="subtitulo" th:text="${semUsuarios} ? 'Crie a conta principal de Administrador deste servidor para liberar o acesso na rede e na web.' : 'Cadastre seu acesso de colaborador para usar o sistema da farmácia.'">Cadastre-se para acessar o sistema agora mesmo.</p>
+
+        <div th:if="${erroCadastro}" class="aviso aviso-perigo" role="alert" th:text="${erroCadastro}">Erro</div>
+
+        <form class="formulario" method="post" th:action="@{/cadastro}">
+            <label for="nome">Seu nome completo</label>
+            <input id="nome" name="nome" type="text" autocomplete="name" required autofocus
+                   placeholder="Ex: João Silva" th:value="${nomeCadastro}">
+
+            <label for="emailCadastro">E-mail</label>
+            <input id="emailCadastro" name="email" type="email" autocomplete="email" required
+                   placeholder="voce@exemplo.com" th:value="${emailCadastro}">
+
+            <label for="senhaCadastro">Crie uma senha (mínimo 8 caracteres)</label>
+            <input id="senhaCadastro" name="senha" type="password" minlength="8" autocomplete="new-password" required
+                   placeholder="Mínimo de 8 caracteres">
+
+            <label for="confirmarSenha">Confirmar senha</label>
+            <input id="confirmarSenha" name="confirmarSenha" type="password" minlength="8" autocomplete="new-password" required
+                   placeholder="Repita a senha">
+
+            <button type="submit" class="botao botao-primario botao-bloco">Cadastrar e entrar agora</button>
+        </form>
+
+        <hr style="border: 0; border-top: 1px solid var(--borda); margin: 22px 0 16px;">
+        <div style="text-align: center;">
+            <a class="botao botao-secundario botao-bloco" th:href="@{/login}">Já tenho conta — Voltar para o Login</a>
+        </div>
+    </th:block>
 </main>
 </body>
 </html>

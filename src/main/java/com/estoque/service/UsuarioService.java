@@ -29,6 +29,17 @@ public class UsuarioService {
         return cadastrar(nome, email, senha, PerfilAcesso.ADMIN);
     }
 
+    /**
+     * Realiza o auto-cadastro na tela de login/primeiro acesso: se ainda nao houver usuarios
+     * no sistema, cria como ADMIN; caso contrario, cria como FUNCIONARIO.
+     */
+    public Usuario registrarAutoCadastro(String nome, String email, String senha) throws SQLException {
+        PerfilAcesso perfil = usuarioRepository.existeAlgum()
+                ? PerfilAcesso.FUNCIONARIO
+                : PerfilAcesso.ADMIN;
+        return cadastrar(nome, email, senha, perfil);
+    }
+
     public Usuario cadastrarFuncionario(
             Usuario usuarioAutenticado, String nome, String email, String senha) throws SQLException {
         exigirAdministrador(usuarioAutenticado);

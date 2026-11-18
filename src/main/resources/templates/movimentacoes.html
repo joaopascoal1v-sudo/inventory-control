@@ -13,6 +13,42 @@
         </div>
     </div>
 
+    <div th:if="${registrado}" class="aviso aviso-sucesso" role="status" style="margin-bottom: 16px;">
+        Movimentação de estoque registrada com sucesso!
+    </div>
+    <div th:if="${estornado}" class="aviso aviso-sucesso" role="status" style="margin-bottom: 16px;">
+        Movimentação estornada com sucesso! O saldo foi restaurado.
+    </div>
+
+    <section class="painel" style="margin-bottom: 20px;" th:if="${!produtos.isEmpty()}">
+        <div class="painel-cabecalho">
+            <h2>Registrar Entrada ou Saída de Estoque</h2>
+        </div>
+        <form class="filtros" method="post" th:action="@{/movimentacoes}">
+            <div class="campo">
+                <label for="movProduto">Produto</label>
+                <select id="movProduto" name="codigoProduto" required>
+                    <option th:each="p : ${produtos}" th:value="${p.codigo}"
+                            th:text="${p.codigo} + ' — ' + ${p.nome} + ' (Saldo: ' + ${p.quantidade} + ')'">Produto</option>
+                </select>
+            </div>
+            <div class="campo">
+                <label for="movTipo">Operação</label>
+                <select id="movTipo" name="tipo" required>
+                    <option value="ENTRADA">⬆ Entrada (+ Adicionar ao estoque)</option>
+                    <option value="SAIDA">⬇ Saída (- Retirar do estoque)</option>
+                </select>
+            </div>
+            <div class="campo">
+                <label for="movQtd">Quantidade</label>
+                <input id="movQtd" name="quantidade" type="number" min="1" value="1" required>
+            </div>
+            <div class="campo campo-acoes">
+                <button type="submit" class="botao botao-primario">Registrar movimentação</button>
+            </div>
+        </form>
+    </section>
+
     <section class="painel">
         <form class="filtros" method="get" th:action="@{/movimentacoes}">
             <div class="campo">
@@ -105,6 +141,10 @@
                                   th:text="'Estorno de #' + ${m.estornoDeId}">Estorno</span>
                             <span th:if="${m.codigoDestino != null and !m.estorno()}" class="texto-suave"
                                   th:text="(${m.entrada()} ? 'Origem: ' : 'Destino: ') + ${m.codigoDestino}">Destino</span>
+                            <form th:if="${!m.estornada() and !m.estorno()}" method="post" th:action="@{/movimentacoes/estornar}" style="display:inline; margin:0;">
+                                <input type="hidden" name="id" th:value="${m.id}">
+                                <button type="submit" class="botao botao-secundario" style="min-height: 28px; padding: 3px 10px; font-size: 12px;">↩ Estornar</button>
+                            </form>
                         </td>
                     </tr>
                     </tbody>

@@ -1,7 +1,10 @@
 package com.estoque.web;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.math.BigDecimal;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
@@ -21,6 +24,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
@@ -29,6 +35,9 @@ import org.thymeleaf.linkbuilder.StandardLinkBuilder;
 import org.thymeleaf.templatemode.TemplateMode;
 import org.thymeleaf.templateresolver.ClassLoaderTemplateResolver;
 
+import com.estoque.entities.Fornecedor;
+import com.estoque.entities.MotivoMovimentacao;
+import com.estoque.entities.PerfilAcesso;
 import com.estoque.entities.TipoMovimentacao;
 import com.estoque.entities.Usuario;
 import com.estoque.service.UsuarioService;
@@ -59,21 +68,38 @@ public final class DashboardWebServer implements AutoCloseable {
     private final TemplateEngine templates;
     private final ExecutorService executor;
     private final HttpServer server;
+    private final boolean modoRestritoLocal;
+    private Process processoTunelWeb;
+    private volatile String urlPublicaTunel;
 
     public DashboardWebServer(DashboardService painel, UsuarioService usuarios, int porta) throws IOException {
-        this(painel, usuarios, porta, Clock.systemDefaultZone());
+        this(painel, usuarios, porta, Clock.systemDefaultZone(), false);
     }
 
     DashboardWebServer(DashboardService painel, UsuarioService usuarios, int porta, Clock relogio)
             throws IOException {
+        this(painel, usuarios, porta, relogio, true);
+    }
+
+    private DashboardWebServer(
+            DashboardService painel,
+            UsuarioService usuarios,
+            int porta,
+            Clock relogio,
+            boolean modoRestritoLocal
+    ) throws IOException {
         if (painel == null || usuarios == null || porta < 0 || porta > 65535) {
             throw new IllegalArgumentException("Configuracao invalida para o painel web.");
         }
         this.painel = painel;
         this.usuarios = usuarios;
+        this.modoRestritoLocal = modoRestritoLocal;
         this.sessoes = new SessoesWeb(INATIVIDADE_SESSAO, relogio);
         this.templates = criarMotorTemplates();
-        this.server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), porta), 0);
+        InetSocketAddress endereco = modoRestritoLocal
+                ? new InetSocketAddress(InetAddress.getLoopbackAddress(), porta)
+                : new InetSocketAddress("0.0.0.0", porta);
+        this.server = HttpServer.create(endereco, 0);
         this.executor = Executors.newFixedThreadPool(4, tarefa -> {
             Thread thread = new Thread(tarefa, "painel-web");
             thread.setDaemon(true);
@@ -140,21 +166,58 @@ public final class DashboardWebServer implements AutoCloseable {
                     exibirLogin(exchange);
                 }
             }
+            case "/cadastro" -> {
+                exigirMetodo(exchange, "GET", "POST");
+                if ("POST".equals(metodo)) {
+                    registrarNovoUsuario(exchange);
+                } else {
+                    exibirCadastro(exchange);
+                }
+            }
             case "/logout" -> {
                 exigirMetodo(exchange, "POST");
                 sair(exchange);
             }
-            case "/dashboard", "/produtos", "/movimentacoes" -> {
-                exigirMetodo(exchange, "GET");
+            case "/dashboard", "/produtos", "/movimentacoes", "/fornecedores",
+                    "/produtos/movimentar", "/produtos/remover", "/movimentacoes/estornar",
+                    "/relatorios/pdf", "/relatorios/excel", "/servidor/tunel" -> {
+                if ("/dashboard".equals(caminho)
+                        || "/relatorios/pdf".equals(caminho)
+                        || "/relatorios/excel".equals(caminho)) {
+                    exigirMetodo(exchange, "GET");
+                } else if ("/produtos/movimentar".equals(caminho)
+                        || "/produtos/remover".equals(caminho)
+                        || "/movimentacoes/estornar".equals(caminho)
+                        || "/servidor/tunel".equals(caminho)) {
+                    exigirMetodo(exchange, "POST");
+                } else {
+                    exigirMetodo(exchange, "GET", "POST");
+                }
                 Optional<Usuario> usuario = usuarioDaSessao(exchange);
                 if (usuario.isEmpty()) {
                     String token = lerCookie(exchange, SessoesWeb.COOKIE);
                     redirecionar(exchange, token == null ? "/login" : "/login?expirou");
                     return;
                 }
+                if ("POST".equals(metodo)) {
+                    switch (caminho) {
+                        case "/produtos" -> salvarProdutoWeb(exchange, usuario.get());
+                        case "/produtos/movimentar" -> movimentarRapidoWeb(exchange, usuario.get());
+                        case "/produtos/remover" -> removerProdutoWeb(exchange);
+                        case "/movimentacoes" -> salvarMovimentacaoWeb(exchange, usuario.get());
+                        case "/movimentacoes/estornar" -> estornarMovimentacaoWeb(exchange, usuario.get());
+                        case "/fornecedores" -> salvarFornecedorWeb(exchange);
+                        case "/servidor/tunel" -> ativarTunelPublicoWeb(exchange, usuario.get());
+                        default -> throw new RequisicaoRecusada(404, "Rota não encontrada.");
+                    }
+                    return;
+                }
                 switch (caminho) {
                     case "/dashboard" -> exibirDashboard(exchange, usuario.get());
                     case "/produtos" -> exibirProdutos(exchange, usuario.get());
+                    case "/fornecedores" -> exibirFornecedores(exchange, usuario.get());
+                    case "/relatorios/pdf" -> baixarRelatorioPdf(exchange);
+                    case "/relatorios/excel" -> baixarRelatorioExcel(exchange);
                     default -> exibirMovimentacoes(exchange, usuario.get());
                 }
             }
@@ -167,6 +230,10 @@ public final class DashboardWebServer implements AutoCloseable {
     private void exibirLogin(HttpExchange exchange) throws IOException, SQLException {
         if (usuarioDaSessao(exchange).isPresent()) {
             redirecionar(exchange, "/dashboard");
+            return;
+        }
+        if (!modoRestritoLocal && !usuarios.temUsuarios()) {
+            exibirCadastro(exchange);
             return;
         }
         Map<String, String> consulta = lerConsulta(exchange);
@@ -197,6 +264,106 @@ public final class DashboardWebServer implements AutoCloseable {
         redirecionar(exchange, "/dashboard");
     }
 
+    private void exibirCadastro(HttpExchange exchange) throws IOException, SQLException {
+        if (usuarioDaSessao(exchange).isPresent()) {
+            redirecionar(exchange, "/dashboard");
+            return;
+        }
+        Map<String, Object> modelo = modeloLogin("");
+        modelo.put("modoCadastro", true);
+        modelo.put("nomeCadastro", "");
+        modelo.put("emailCadastro", "");
+        renderizar(exchange, 200, "login", modelo);
+    }
+
+    private void registrarNovoUsuario(HttpExchange exchange) throws IOException, SQLException {
+        exigirMesmaOrigem(exchange);
+        Map<String, String> formulario = lerFormulario(exchange);
+        String nome = formulario.getOrDefault("nome", "").trim();
+        String email = formulario.getOrDefault("email", "").trim();
+        String senha = formulario.getOrDefault("senha", "");
+        String confirmarSenha = formulario.getOrDefault("confirmarSenha", "");
+
+        if (!senha.equals(confirmarSenha)) {
+            Map<String, Object> modelo = modeloLogin("");
+            modelo.put("modoCadastro", true);
+            modelo.put("nomeCadastro", nome);
+            modelo.put("emailCadastro", email);
+            modelo.put("erroCadastro", "As senhas informadas não conferem.");
+            renderizar(exchange, 400, "login", modelo);
+            return;
+        }
+
+        Usuario novoUsuario;
+        try {
+            novoUsuario = usuarios.registrarAutoCadastro(nome, email, senha);
+            if (!modoRestritoLocal && novoUsuario.getPerfil() == PerfilAcesso.ADMIN) {
+                painel.popularEstoqueFarmaciaSeVazio(novoUsuario.getId());
+            }
+        } catch (IllegalArgumentException e) {
+            Map<String, Object> modelo = modeloLogin("");
+            modelo.put("modoCadastro", true);
+            modelo.put("nomeCadastro", nome);
+            modelo.put("emailCadastro", email);
+            modelo.put("erroCadastro", e.getMessage());
+            renderizar(exchange, 400, "login", modelo);
+            return;
+        }
+
+        sessoes.encerrar(lerCookie(exchange, SessoesWeb.COOKIE));
+        String token = sessoes.criar(novoUsuario);
+        exchange.getResponseHeaders().add("Set-Cookie",
+                SessoesWeb.COOKIE + "=" + token + "; Path=/; HttpOnly; SameSite=Strict");
+        redirecionar(exchange, "/dashboard");
+    }
+
+    private void salvarProdutoWeb(HttpExchange exchange, Usuario usuario) throws IOException, SQLException {
+        exigirMesmaOrigem(exchange);
+        Map<String, String> form = lerFormulario(exchange);
+        try {
+            String codigo = form.getOrDefault("codigo", "").trim();
+            String nome = form.getOrDefault("nome", "").trim();
+            BigDecimal preco = new BigDecimal(form.getOrDefault("preco", "0").trim().replace(',', '.'));
+            int quantidade = Integer.parseInt(form.getOrDefault("quantidade", "0").trim());
+            String minStr = form.getOrDefault("estoqueMinimo", "0").trim();
+            int estoqueMinimo = minStr.isEmpty() ? 0 : Integer.parseInt(minStr);
+            painel.cadastrarProduto(codigo, nome, preco, quantidade, estoqueMinimo);
+            redirecionar(exchange, "/produtos?cadastrado");
+        } catch (Exception e) {
+            List<ProdutoView> todos = painel.listarProdutos();
+            List<ProdutoView> alertas = todos.stream().filter(ProdutoView::emAlerta).toList();
+            Map<String, Object> modelo = modeloAutenticado(usuario, "produtos", alertas);
+            modelo.put("produtos", todos);
+            modelo.put("somenteAlertas", false);
+            modelo.put("busca", "");
+            modelo.put("totalProdutos", todos.size());
+            modelo.put("erroCadastroProduto", e instanceof NumberFormatException
+                    ? "Informe preço e quantidade válidos."
+                    : e.getMessage());
+            renderizar(exchange, 400, "produtos", modelo);
+        }
+    }
+
+    private void salvarMovimentacaoWeb(HttpExchange exchange, Usuario usuario) throws IOException, SQLException {
+        exigirMesmaOrigem(exchange);
+        Map<String, String> form = lerFormulario(exchange);
+        try {
+            String codigoProduto = form.getOrDefault("codigoProduto", "").trim();
+            TipoMovimentacao tipo = TipoMovimentacao.valueOf(
+                    form.getOrDefault("tipo", "ENTRADA").trim().toUpperCase(Locale.ROOT));
+            int quantidade = Integer.parseInt(form.getOrDefault("quantidade", "0").trim());
+            MotivoMovimentacao motivo = tipo == TipoMovimentacao.ENTRADA
+                    ? MotivoMovimentacao.COMPRA
+                    : MotivoMovimentacao.VENDA;
+            painel.registrarMovimentacao(codigoProduto, tipo, quantidade, motivo, usuario.getId());
+            redirecionar(exchange, "/movimentacoes?registrado");
+        } catch (Exception e) {
+            redirecionar(exchange, "/movimentacoes?erro=" + java.net.URLEncoder.encode(
+                    e instanceof NumberFormatException ? "Informe uma quantidade válida." : e.getMessage(),
+                    StandardCharsets.UTF_8));
+        }
+    }
+
     private void sair(HttpExchange exchange) throws IOException {
         exigirMesmaOrigem(exchange);
         sessoes.encerrar(lerCookie(exchange, SessoesWeb.COOKIE));
@@ -222,7 +389,60 @@ public final class DashboardWebServer implements AutoCloseable {
         ResumoDashboard resumo = painel.montarResumo();
         Map<String, Object> modelo = modeloAutenticado(usuario, "dashboard", resumo.alertas());
         modelo.put("resumo", resumo);
+        modelo.put("isAdmin", usuario.getPerfil() == PerfilAcesso.ADMIN);
+        modelo.put("linkRedeLocal", obterLinkRedeLocal());
+        modelo.put("linkInternetPublico", urlPublicaTunel);
         renderizar(exchange, 200, "dashboard", modelo);
+    }
+
+    private String obterLinkRedeLocal() {
+        String ip = "localhost";
+        try {
+            ip = InetAddress.getLocalHost().getHostAddress();
+        } catch (Exception ignored) {
+        }
+        return "http://" + ip + ":" + getPorta() + "/login";
+    }
+
+    private synchronized void ativarTunelPublicoWeb(HttpExchange exchange, Usuario usuario) throws IOException {
+        exigirMesmaOrigem(exchange);
+        if (usuario.getPerfil() != PerfilAcesso.ADMIN) {
+            redirecionar(exchange, "/dashboard");
+            return;
+        }
+        if (urlPublicaTunel == null) {
+            try {
+                ProcessBuilder pb = new ProcessBuilder(
+                        "ssh",
+                        "-o", "StrictHostKeyChecking=accept-new",
+                        "-o", "ServerAliveInterval=30",
+                        "-R", "80:localhost:" + getPorta(),
+                        "nokey@localhost.run");
+                pb.redirectErrorStream(true);
+                processoTunelWeb = pb.start();
+                Pattern padrao = Pattern.compile("(https://[a-zA-Z0-9.-]+\\.lhr\\.life)");
+                long limite = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(8);
+                BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(processoTunelWeb.getInputStream(), StandardCharsets.UTF_8));
+                while (System.currentTimeMillis() < limite) {
+                    if (reader.ready()) {
+                        String linha = reader.readLine();
+                        if (linha == null) {
+                            break;
+                        }
+                        Matcher m = padrao.matcher(linha);
+                        if (m.find()) {
+                            urlPublicaTunel = m.group(1) + "/login";
+                            break;
+                        }
+                    } else {
+                        Thread.sleep(150);
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        redirecionar(exchange, "/dashboard");
     }
 
     private void exibirProdutos(HttpExchange exchange, Usuario usuario) throws IOException, SQLException {
@@ -241,7 +461,103 @@ public final class DashboardWebServer implements AutoCloseable {
         modelo.put("somenteAlertas", somenteAlertas);
         modelo.put("busca", busca);
         modelo.put("totalProdutos", todos.size());
+        modelo.put("cadastrado", consulta.containsKey("cadastrado"));
+        modelo.put("movimentado", consulta.containsKey("movimentado"));
+        modelo.put("removido", consulta.containsKey("removido"));
+        if (consulta.containsKey("erro") && !consulta.get("erro").isBlank()) {
+            modelo.put("erroCadastroProduto", consulta.get("erro"));
+        }
         renderizar(exchange, 200, "produtos", modelo);
+    }
+
+    private void movimentarRapidoWeb(HttpExchange exchange, Usuario usuario) throws IOException {
+        exigirMesmaOrigem(exchange);
+        Map<String, String> form = lerFormulario(exchange);
+        try {
+            String codigo = form.getOrDefault("codigo", "").trim();
+            TipoMovimentacao tipo = TipoMovimentacao.valueOf(
+                    form.getOrDefault("tipo", "ENTRADA").trim().toUpperCase(Locale.ROOT));
+            int quantidade = Integer.parseInt(form.getOrDefault("quantidade", "1").trim());
+            MotivoMovimentacao motivo = tipo == TipoMovimentacao.ENTRADA
+                    ? MotivoMovimentacao.COMPRA
+                    : MotivoMovimentacao.VENDA;
+            painel.registrarMovimentacao(codigo, tipo, quantidade, motivo, usuario.getId());
+            redirecionar(exchange, "/produtos?movimentado");
+        } catch (Exception e) {
+            redirecionar(exchange, "/produtos?erro=" + java.net.URLEncoder.encode(
+                    e.getMessage() == null ? "Não foi possível movimentar o produto." : e.getMessage(),
+                    StandardCharsets.UTF_8));
+        }
+    }
+
+    private void removerProdutoWeb(HttpExchange exchange) throws IOException {
+        exigirMesmaOrigem(exchange);
+        Map<String, String> form = lerFormulario(exchange);
+        try {
+            String codigo = form.getOrDefault("codigo", "").trim();
+            painel.removerProduto(codigo);
+            redirecionar(exchange, "/produtos?removido");
+        } catch (Exception e) {
+            redirecionar(exchange, "/produtos?erro=" + java.net.URLEncoder.encode(
+                    e.getMessage() == null ? "Não foi possível remover o produto (possui movimentações vinculadas)." : e.getMessage(),
+                    StandardCharsets.UTF_8));
+        }
+    }
+
+    private void estornarMovimentacaoWeb(HttpExchange exchange, Usuario usuario) throws IOException {
+        exigirMesmaOrigem(exchange);
+        Map<String, String> form = lerFormulario(exchange);
+        try {
+            long id = Long.parseLong(form.getOrDefault("id", "0").trim());
+            painel.estornarMovimentacao(id, usuario.getId());
+            redirecionar(exchange, "/movimentacoes?estornado");
+        } catch (Exception e) {
+            redirecionar(exchange, "/movimentacoes?erro=" + java.net.URLEncoder.encode(
+                    e.getMessage() == null ? "Não foi possível estornar a movimentação." : e.getMessage(),
+                    StandardCharsets.UTF_8));
+        }
+    }
+
+    private void exibirFornecedores(HttpExchange exchange, Usuario usuario) throws IOException, SQLException {
+        Map<String, String> consulta = lerConsulta(exchange);
+        List<ProdutoView> alertas = painel.listarProdutos().stream().filter(ProdutoView::emAlerta).toList();
+        Map<String, Object> modelo = modeloAutenticado(usuario, "fornecedores", alertas);
+        modelo.put("fornecedores", painel.listarFornecedores());
+        modelo.put("cadastrado", consulta.containsKey("cadastrado"));
+        if (consulta.containsKey("erro") && !consulta.get("erro").isBlank()) {
+            modelo.put("erro", consulta.get("erro"));
+        }
+        renderizar(exchange, 200, "fornecedores", modelo);
+    }
+
+    private void salvarFornecedorWeb(HttpExchange exchange) throws IOException {
+        exigirMesmaOrigem(exchange);
+        Map<String, String> form = lerFormulario(exchange);
+        try {
+            painel.cadastrarFornecedor(new Fornecedor(
+                    form.getOrDefault("nome", ""),
+                    form.getOrDefault("cnpj", ""),
+                    form.getOrDefault("telefone", ""),
+                    form.getOrDefault("email", ""),
+                    form.getOrDefault("endereco", "")));
+            redirecionar(exchange, "/fornecedores?cadastrado");
+        } catch (Exception e) {
+            redirecionar(exchange, "/fornecedores?erro=" + java.net.URLEncoder.encode(
+                    e.getMessage() == null ? "Dados inválidos para o fornecedor." : e.getMessage(),
+                    StandardCharsets.UTF_8));
+        }
+    }
+
+    private void baixarRelatorioPdf(HttpExchange exchange) throws IOException, SQLException {
+        byte[] pdf = painel.gerarPdfRelatorio();
+        exchange.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"relatorio-estoque.pdf\"");
+        enviar(exchange, 200, "application/pdf", pdf);
+    }
+
+    private void baixarRelatorioExcel(HttpExchange exchange) throws IOException, SQLException {
+        byte[] xlsx = painel.gerarExcelRelatorio();
+        exchange.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"relatorio-estoque.xlsx\"");
+        enviar(exchange, 200, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", xlsx);
     }
 
     private void exibirMovimentacoes(HttpExchange exchange, Usuario usuario) throws IOException, SQLException {
@@ -259,6 +575,9 @@ public final class DashboardWebServer implements AutoCloseable {
         if (inicio != null && fim != null && inicio.isAfter(fim)) {
             erros.add("A data inicial não pode ser posterior à data final.");
         }
+        if (consulta.containsKey("erro") && !consulta.get("erro").isBlank()) {
+            erros.add(consulta.get("erro"));
+        }
 
         List<ProdutoView> produtos = painel.listarProdutos();
         HistoricoMovimentacoes historico = erros.isEmpty()
@@ -272,6 +591,8 @@ public final class DashboardWebServer implements AutoCloseable {
         modelo.put("produtos", produtos);
         modelo.put("tipos", Rotulos.tiposMovimentacao());
         modelo.put("erros", erros);
+        modelo.put("registrado", consulta.containsKey("registrado"));
+        modelo.put("estornado", consulta.containsKey("estornado"));
         modelo.put("historico", historico);
         modelo.put("limiteHistorico", DashboardService.LIMITE_HISTORICO);
         renderizar(exchange, 200, "movimentacoes", modelo);
@@ -389,8 +710,11 @@ public final class DashboardWebServer implements AutoCloseable {
      */
     private boolean hostPermitido(HttpExchange exchange) {
         String host = exchange.getRequestHeaders().getFirst("Host");
-        if (host == null) {
+        if (host == null || host.isBlank()) {
             return false;
+        }
+        if (!modoRestritoLocal) {
+            return true;
         }
         String nome = host;
         if (host.startsWith("[")) {
@@ -406,7 +730,12 @@ public final class DashboardWebServer implements AutoCloseable {
     private void exigirMesmaOrigem(HttpExchange exchange) {
         String origem = exchange.getRequestHeaders().getFirst("Origin");
         String host = exchange.getRequestHeaders().getFirst("Host");
-        if (origem != null && !origem.equals("http://" + host)) {
+        if (origem == null) {
+            return;
+        }
+        boolean mesmaOrigemHttp = origem.equals("http://" + host);
+        boolean mesmaOrigemHttps = !modoRestritoLocal && origem.equals("https://" + host);
+        if (!mesmaOrigemHttp && !mesmaOrigemHttps) {
             throw new RequisicaoRecusada(403, "Formulário enviado por uma origem não permitida.");
         }
     }

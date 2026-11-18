@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: inventory-control-online
+    runtime: docker
+    plan: free
+    envVars:
+      - key: WEB_ONLY
+        value: "true"
+      - key: PORT
+        value: "8081"
