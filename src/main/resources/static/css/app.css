@@ -173,6 +173,7 @@ a:hover {
 
 .navegacao {
     display: flex;
+    flex-wrap: wrap;
     gap: 4px;
     flex: 1;
 }
@@ -185,6 +186,7 @@ a:hover {
     border-radius: var(--raio-pequeno);
     color: var(--topo-suave);
     font-weight: 550;
+    white-space: nowrap;
 }
 
 .navegacao a:hover {
@@ -318,6 +320,7 @@ a:hover {
 
 .cabecalho-pagina {
     display: flex;
+    flex-wrap: wrap;
     align-items: flex-end;
     justify-content: space-between;
     gap: 16px;
@@ -491,6 +494,7 @@ h1 {
 
 .painel-cabecalho {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 12px;

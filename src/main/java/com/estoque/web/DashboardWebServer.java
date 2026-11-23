@@ -36,10 +36,12 @@ import org.thymeleaf.templatemode.TemplateMode;
 import org.thymeleaf.templateresolver.ClassLoaderTemplateResolver;
 
 import com.estoque.entities.Fornecedor;
+import com.estoque.entities.LogAuditoria;
 import com.estoque.entities.MotivoMovimentacao;
 import com.estoque.entities.PerfilAcesso;
 import com.estoque.entities.TipoMovimentacao;
 import com.estoque.entities.Usuario;
+import com.estoque.service.AuditoriaService;
 import com.estoque.service.UsuarioService;
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
@@ -64,13 +66,16 @@ public final class DashboardWebServer implements AutoCloseable {
 
     private final DashboardService painel;
     private final UsuarioService usuarios;
+    private final AuditoriaService auditoria = new AuditoriaService();
     private final SessoesWeb sessoes;
     private final TemplateEngine templates;
     private final ExecutorService executor;
     private final HttpServer server;
     private final boolean modoRestritoLocal;
-    private Process processoTunelWeb;
+    private final Map<String, byte[]> cacheEstatico = new java.util.concurrent.ConcurrentHashMap<>();
+    private volatile Process processoTunelWeb;
     private volatile String urlPublicaTunel;
+    private volatile boolean tunelWatchdogAtivo;
 
     public DashboardWebServer(DashboardService painel, UsuarioService usuarios, int porta) throws IOException {
         this(painel, usuarios, porta, Clock.systemDefaultZone(), false);
@@ -99,8 +104,9 @@ public final class DashboardWebServer implements AutoCloseable {
         InetSocketAddress endereco = modoRestritoLocal
                 ? new InetSocketAddress(InetAddress.getLoopbackAddress(), porta)
                 : new InetSocketAddress("0.0.0.0", porta);
-        this.server = HttpServer.create(endereco, 0);
-        this.executor = Executors.newFixedThreadPool(4, tarefa -> {
+        this.server = HttpServer.create(endereco, 128);
+        int numThreads = modoRestritoLocal ? 4 : 32;
+        this.executor = Executors.newFixedThreadPool(numThreads, tarefa -> {
             Thread thread = new Thread(tarefa, "painel-web");
             thread.setDaemon(true);
             return thread;
@@ -121,6 +127,9 @@ public final class DashboardWebServer implements AutoCloseable {
     public void close() {
         server.stop(1);
         executor.shutdown();
+        if (processoTunelWeb != null) {
+            processoTunelWeb.destroy();
+        }
     }
 
     private void atender(HttpExchange exchange) throws IOException {
@@ -152,6 +161,12 @@ public final class DashboardWebServer implements AutoCloseable {
             servirArquivoEstatico(exchange, caminho);
             return;
         }
+        if ("/favicon.ico".equals(caminho)) {
+            exigirMetodo(exchange, "GET");
+            exchange.getResponseHeaders().set("Cache-Control", "public, max-age=86400");
+            enviar(exchange, 204, null, new byte[0]);
+            return;
+        }
 
         switch (caminho) {
             case "/" -> {
@@ -178,10 +193,11 @@ public final class DashboardWebServer implements AutoCloseable {
                 exigirMetodo(exchange, "POST");
                 sair(exchange);
             }
-            case "/dashboard", "/produtos", "/movimentacoes", "/fornecedores",
+            case "/dashboard", "/produtos", "/movimentacoes", "/fornecedores", "/logs",
                     "/produtos/movimentar", "/produtos/remover", "/movimentacoes/estornar",
                     "/relatorios/pdf", "/relatorios/excel", "/servidor/tunel" -> {
                 if ("/dashboard".equals(caminho)
+                        || "/logs".equals(caminho)
                         || "/relatorios/pdf".equals(caminho)
                         || "/relatorios/excel".equals(caminho)) {
                     exigirMetodo(exchange, "GET");
@@ -203,10 +219,10 @@ public final class DashboardWebServer implements AutoCloseable {
                     switch (caminho) {
                         case "/produtos" -> salvarProdutoWeb(exchange, usuario.get());
                         case "/produtos/movimentar" -> movimentarRapidoWeb(exchange, usuario.get());
-                        case "/produtos/remover" -> removerProdutoWeb(exchange);
+                        case "/produtos/remover" -> removerProdutoWeb(exchange, usuario.get());
                         case "/movimentacoes" -> salvarMovimentacaoWeb(exchange, usuario.get());
                         case "/movimentacoes/estornar" -> estornarMovimentacaoWeb(exchange, usuario.get());
-                        case "/fornecedores" -> salvarFornecedorWeb(exchange);
+                        case "/fornecedores" -> salvarFornecedorWeb(exchange, usuario.get());
                         case "/servidor/tunel" -> ativarTunelPublicoWeb(exchange, usuario.get());
                         default -> throw new RequisicaoRecusada(404, "Rota não encontrada.");
                     }
@@ -216,8 +232,9 @@ public final class DashboardWebServer implements AutoCloseable {
                     case "/dashboard" -> exibirDashboard(exchange, usuario.get());
                     case "/produtos" -> exibirProdutos(exchange, usuario.get());
                     case "/fornecedores" -> exibirFornecedores(exchange, usuario.get());
-                    case "/relatorios/pdf" -> baixarRelatorioPdf(exchange);
-                    case "/relatorios/excel" -> baixarRelatorioExcel(exchange);
+                    case "/logs" -> exibirLogs(exchange, usuario.get());
+                    case "/relatorios/pdf" -> baixarRelatorioPdf(exchange, usuario.get());
+                    case "/relatorios/excel" -> baixarRelatorioExcel(exchange, usuario.get());
                     default -> exibirMovimentacoes(exchange, usuario.get());
                 }
             }
@@ -248,10 +265,19 @@ public final class DashboardWebServer implements AutoCloseable {
         Map<String, String> formulario = lerFormulario(exchange);
         String email = formulario.getOrDefault("email", "").trim();
         String senha = formulario.getOrDefault("senha", "");
+        String origemCliente = obterOrigemCliente(exchange);
         Usuario usuario;
         try {
             usuario = usuarios.login(email, senha);
         } catch (IllegalArgumentException e) {
+            auditoria.registrar(
+                    "Tentativa (" + (email.isEmpty() ? "sem e-mail" : email) + ")",
+                    email,
+                    "Não autenticado",
+                    "ACESSO",
+                    "Falha de Login",
+                    "Tentativa de login com e-mail ou senha inválidos",
+                    origemCliente);
             Map<String, Object> modelo = modeloLogin(email);
             modelo.put("erro", "E-mail ou senha inválidos.");
             renderizar(exchange, 401, "login", modelo);
@@ -259,6 +285,11 @@ public final class DashboardWebServer implements AutoCloseable {
         }
         sessoes.encerrar(lerCookie(exchange, SessoesWeb.COOKIE));
         String token = sessoes.criar(usuario);
+        auditoria.registrarAcesso(
+                usuario,
+                "Login no Painel",
+                "Acessou o sistema e iniciou sessão no painel Web",
+                origemCliente);
         exchange.getResponseHeaders().add("Set-Cookie",
                 SessoesWeb.COOKIE + "=" + token + "; Path=/; HttpOnly; SameSite=Strict");
         redirecionar(exchange, "/dashboard");
@@ -312,6 +343,11 @@ public final class DashboardWebServer implements AutoCloseable {
 
         sessoes.encerrar(lerCookie(exchange, SessoesWeb.COOKIE));
         String token = sessoes.criar(novoUsuario);
+        auditoria.registrarAcesso(
+                novoUsuario,
+                "Criação de Conta",
+                "Cadastrou nova conta de acesso (" + Rotulos.perfil(novoUsuario.getPerfil()) + ") e entrou no sistema",
+                obterOrigemCliente(exchange));
         exchange.getResponseHeaders().add("Set-Cookie",
                 SessoesWeb.COOKIE + "=" + token + "; Path=/; HttpOnly; SameSite=Strict");
         redirecionar(exchange, "/dashboard");
@@ -328,6 +364,11 @@ public final class DashboardWebServer implements AutoCloseable {
             String minStr = form.getOrDefault("estoqueMinimo", "0").trim();
             int estoqueMinimo = minStr.isEmpty() ? 0 : Integer.parseInt(minStr);
             painel.cadastrarProduto(codigo, nome, preco, quantidade, estoqueMinimo);
+            auditoria.registrarModificacao(
+                    usuario,
+                    "Novo Produto",
+                    "Cadastrou o produto " + codigo + " (" + nome + ") · Qtd inicial: " + quantidade + " · Preço: R$ " + preco,
+                    obterOrigemCliente(exchange));
             redirecionar(exchange, "/produtos?cadastrado");
         } catch (Exception e) {
             List<ProdutoView> todos = painel.listarProdutos();
@@ -356,6 +397,13 @@ public final class DashboardWebServer implements AutoCloseable {
                     ? MotivoMovimentacao.COMPRA
                     : MotivoMovimentacao.VENDA;
             painel.registrarMovimentacao(codigoProduto, tipo, quantidade, motivo, usuario.getId());
+            String acao = tipo == TipoMovimentacao.ENTRADA ? "Entrada de Estoque" : "Saída de Estoque";
+            String sinal = tipo == TipoMovimentacao.ENTRADA ? "+" : "-";
+            auditoria.registrarModificacao(
+                    usuario,
+                    acao,
+                    "Registrou " + acao.toLowerCase() + " (" + sinal + quantidade + " un.) no produto " + codigoProduto,
+                    obterOrigemCliente(exchange));
             redirecionar(exchange, "/movimentacoes?registrado");
         } catch (Exception e) {
             redirecionar(exchange, "/movimentacoes?erro=" + java.net.URLEncoder.encode(
@@ -366,6 +414,12 @@ public final class DashboardWebServer implements AutoCloseable {
 
     private void sair(HttpExchange exchange) throws IOException {
         exigirMesmaOrigem(exchange);
+        Optional<Usuario> usuario = usuarioDaSessao(exchange);
+        usuario.ifPresent(u -> auditoria.registrarAcesso(
+                u,
+                "Saída do Sistema",
+                "Encerrou a sessão (Logout) no painel Web",
+                obterOrigemCliente(exchange)));
         sessoes.encerrar(lerCookie(exchange, SessoesWeb.COOKIE));
         exchange.getResponseHeaders().add("Set-Cookie",
                 SessoesWeb.COOKIE + "=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
@@ -410,39 +464,74 @@ public final class DashboardWebServer implements AutoCloseable {
             redirecionar(exchange, "/dashboard");
             return;
         }
-        if (urlPublicaTunel == null) {
+        iniciarWatchdogTunelSeNecessario();
+        long limite = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(8);
+        while (urlPublicaTunel == null && System.currentTimeMillis() < limite) {
             try {
-                ProcessBuilder pb = new ProcessBuilder(
-                        "ssh",
-                        "-o", "StrictHostKeyChecking=accept-new",
-                        "-o", "ServerAliveInterval=30",
-                        "-R", "80:localhost:" + getPorta(),
-                        "nokey@localhost.run");
-                pb.redirectErrorStream(true);
-                processoTunelWeb = pb.start();
-                Pattern padrao = Pattern.compile("(https://[a-zA-Z0-9.-]+\\.lhr\\.life)");
-                long limite = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(8);
-                BufferedReader reader = new BufferedReader(
-                        new InputStreamReader(processoTunelWeb.getInputStream(), StandardCharsets.UTF_8));
-                while (System.currentTimeMillis() < limite) {
-                    if (reader.ready()) {
-                        String linha = reader.readLine();
-                        if (linha == null) {
-                            break;
-                        }
-                        Matcher m = padrao.matcher(linha);
-                        if (m.find()) {
-                            urlPublicaTunel = m.group(1) + "/login";
-                            break;
-                        }
-                    } else {
-                        Thread.sleep(150);
-                    }
-                }
-            } catch (Exception ignored) {
+                Thread.sleep(150);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
             }
         }
+        auditoria.registrarModificacao(
+                usuario,
+                "Túnel Público Web",
+                "Ativou o link público HTTPS de acesso externo" + (urlPublicaTunel != null ? " (" + urlPublicaTunel + ")" : ""),
+                obterOrigemCliente(exchange));
         redirecionar(exchange, "/dashboard");
+    }
+
+    private synchronized void iniciarWatchdogTunelSeNecessario() {
+        if (tunelWatchdogAtivo && processoTunelWeb != null && processoTunelWeb.isAlive()) {
+            return;
+        }
+        tunelWatchdogAtivo = true;
+        int portaLocal = getPorta();
+        Thread watchdog = new Thread(() -> {
+            Pattern padrao = Pattern.compile("(https://[a-zA-Z0-9.-]+\\.lhr\\.life)");
+            while (!executor.isShutdown()) {
+                try {
+                    ProcessBuilder pb = new ProcessBuilder(
+                            "ssh",
+                            "-T",
+                            "-o", "StrictHostKeyChecking=accept-new",
+                            "-o", "ServerAliveInterval=15",
+                            "-o", "ServerAliveCountMax=4",
+                            "-o", "TCPKeepAlive=yes",
+                            "-o", "ExitOnForwardFailure=yes",
+                            "-R", "80:localhost:" + portaLocal,
+                            "nokey@localhost.run");
+                    pb.redirectErrorStream(true);
+                    processoTunelWeb = pb.start();
+                    // Drena continuamente o stdout do ssh.exe para nunca encher o buffer de 4 KB do Windows
+                    try (BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(processoTunelWeb.getInputStream(), StandardCharsets.UTF_8))) {
+                        String linha;
+                        while ((linha = reader.readLine()) != null) {
+                            Matcher m = padrao.matcher(linha);
+                            if (m.find()) {
+                                urlPublicaTunel = m.group(1) + "/login";
+                            }
+                        }
+                    }
+                    processoTunelWeb.waitFor();
+                } catch (Exception ignored) {
+                }
+                if (executor.isShutdown()) {
+                    break;
+                }
+                try {
+                    Thread.sleep(2000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            tunelWatchdogAtivo = false;
+        }, "tunel-ssh-web-watchdog");
+        watchdog.setDaemon(true);
+        watchdog.start();
     }
 
     private void exibirProdutos(HttpExchange exchange, Usuario usuario) throws IOException, SQLException {
@@ -482,6 +571,13 @@ public final class DashboardWebServer implements AutoCloseable {
                     ? MotivoMovimentacao.COMPRA
                     : MotivoMovimentacao.VENDA;
             painel.registrarMovimentacao(codigo, tipo, quantidade, motivo, usuario.getId());
+            String acao = tipo == TipoMovimentacao.ENTRADA ? "Entrada de Estoque" : "Saída de Estoque";
+            String sinal = tipo == TipoMovimentacao.ENTRADA ? "+" : "-";
+            auditoria.registrarModificacao(
+                    usuario,
+                    acao,
+                    "Movimentação rápida (" + sinal + quantidade + " un.) no produto " + codigo,
+                    obterOrigemCliente(exchange));
             redirecionar(exchange, "/produtos?movimentado");
         } catch (Exception e) {
             redirecionar(exchange, "/produtos?erro=" + java.net.URLEncoder.encode(
@@ -490,12 +586,17 @@ public final class DashboardWebServer implements AutoCloseable {
         }
     }
 
-    private void removerProdutoWeb(HttpExchange exchange) throws IOException {
+    private void removerProdutoWeb(HttpExchange exchange, Usuario usuario) throws IOException {
         exigirMesmaOrigem(exchange);
         Map<String, String> form = lerFormulario(exchange);
         try {
             String codigo = form.getOrDefault("codigo", "").trim();
             painel.removerProduto(codigo);
+            auditoria.registrarModificacao(
+                    usuario,
+                    "Exclusão de Produto",
+                    "Removeu o produto " + codigo + " do catálogo de estoque",
+                    obterOrigemCliente(exchange));
             redirecionar(exchange, "/produtos?removido");
         } catch (Exception e) {
             redirecionar(exchange, "/produtos?erro=" + java.net.URLEncoder.encode(
@@ -510,6 +611,11 @@ public final class DashboardWebServer implements AutoCloseable {
         try {
             long id = Long.parseLong(form.getOrDefault("id", "0").trim());
             painel.estornarMovimentacao(id, usuario.getId());
+            auditoria.registrarModificacao(
+                    usuario,
+                    "Estorno de Movimentação",
+                    "Estornou a movimentação de estoque #" + id + " (reverteu o saldo)",
+                    obterOrigemCliente(exchange));
             redirecionar(exchange, "/movimentacoes?estornado");
         } catch (Exception e) {
             redirecionar(exchange, "/movimentacoes?erro=" + java.net.URLEncoder.encode(
@@ -530,16 +636,23 @@ public final class DashboardWebServer implements AutoCloseable {
         renderizar(exchange, 200, "fornecedores", modelo);
     }
 
-    private void salvarFornecedorWeb(HttpExchange exchange) throws IOException {
+    private void salvarFornecedorWeb(HttpExchange exchange, Usuario usuario) throws IOException {
         exigirMesmaOrigem(exchange);
         Map<String, String> form = lerFormulario(exchange);
         try {
+            String nome = form.getOrDefault("nome", "");
+            String cnpj = form.getOrDefault("cnpj", "");
             painel.cadastrarFornecedor(new Fornecedor(
-                    form.getOrDefault("nome", ""),
-                    form.getOrDefault("cnpj", ""),
+                    nome,
+                    cnpj,
                     form.getOrDefault("telefone", ""),
                     form.getOrDefault("email", ""),
                     form.getOrDefault("endereco", "")));
+            auditoria.registrarModificacao(
+                    usuario,
+                    "Novo Fornecedor",
+                    "Cadastrou o fornecedor " + nome.trim() + (cnpj.isBlank() ? "" : " (CNPJ: " + cnpj.trim() + ")"),
+                    obterOrigemCliente(exchange));
             redirecionar(exchange, "/fornecedores?cadastrado");
         } catch (Exception e) {
             redirecionar(exchange, "/fornecedores?erro=" + java.net.URLEncoder.encode(
@@ -548,14 +661,58 @@ public final class DashboardWebServer implements AutoCloseable {
         }
     }
 
-    private void baixarRelatorioPdf(HttpExchange exchange) throws IOException, SQLException {
+    private void exibirLogs(HttpExchange exchange, Usuario usuario) throws IOException, SQLException {
+        if (usuario.getPerfil() != PerfilAcesso.ADMIN) {
+            throw new RequisicaoRecusada(403, "Apenas administradores podem visualizar os logs de auditoria.");
+        }
+        Map<String, String> consulta = lerConsulta(exchange);
+        String filtroCategoria = consulta.getOrDefault("categoria", "").trim().toUpperCase(Locale.ROOT);
+        if (!"ACESSO".equals(filtroCategoria) && !"MODIFICACAO".equals(filtroCategoria)) {
+            filtroCategoria = "";
+        }
+
+        List<LogAuditoria> todosLogs = auditoria.listar(null, 300);
+        List<LogAuditoria> logsFiltrados = filtroCategoria.isEmpty()
+                ? todosLogs
+                : auditoria.listar(filtroCategoria, 300);
+
+        long totalAcessos = todosLogs.stream().filter(LogAuditoria::isAcesso).count();
+        long totalModificacoes = todosLogs.stream().filter(LogAuditoria::isModificacao).count();
+        long totalUsuariosUnicos = todosLogs.stream()
+                .map(LogAuditoria::usuarioEmail)
+                .filter(e -> e != null && !e.isBlank() && !"-".equals(e))
+                .distinct()
+                .count();
+
+        List<ProdutoView> alertas = painel.listarProdutos().stream().filter(ProdutoView::emAlerta).toList();
+        Map<String, Object> modelo = modeloAutenticado(usuario, "logs", alertas);
+        modelo.put("logs", logsFiltrados);
+        modelo.put("filtroCategoria", filtroCategoria);
+        modelo.put("totalLogs", todosLogs.size());
+        modelo.put("totalAcessos", totalAcessos);
+        modelo.put("totalModificacoes", totalModificacoes);
+        modelo.put("totalUsuariosUnicos", totalUsuariosUnicos);
+        renderizar(exchange, 200, "logs", modelo);
+    }
+
+    private void baixarRelatorioPdf(HttpExchange exchange, Usuario usuario) throws IOException, SQLException {
         byte[] pdf = painel.gerarPdfRelatorio();
+        auditoria.registrarModificacao(
+                usuario,
+                "Exportação de Relatório",
+                "Baixou o relatório geral de estoque em formato PDF",
+                obterOrigemCliente(exchange));
         exchange.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"relatorio-estoque.pdf\"");
         enviar(exchange, 200, "application/pdf", pdf);
     }
 
-    private void baixarRelatorioExcel(HttpExchange exchange) throws IOException, SQLException {
+    private void baixarRelatorioExcel(HttpExchange exchange, Usuario usuario) throws IOException, SQLException {
         byte[] xlsx = painel.gerarExcelRelatorio();
+        auditoria.registrarModificacao(
+                usuario,
+                "Exportação de Relatório",
+                "Baixou a planilha de estoque em formato Excel (.xlsx)",
+                obterOrigemCliente(exchange));
         exchange.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"relatorio-estoque.xlsx\"");
         enviar(exchange, 200, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", xlsx);
     }
@@ -602,12 +759,30 @@ public final class DashboardWebServer implements AutoCloseable {
         Map<String, Object> modelo = new HashMap<>();
         modelo.put("usuarioNome", usuario.getNome());
         modelo.put("usuarioPerfil", Rotulos.perfil(usuario.getPerfil()));
+        modelo.put("isAdmin", usuario.getPerfil() == PerfilAcesso.ADMIN);
         modelo.put("paginaAtiva", paginaAtiva);
         modelo.put("totalAlertas", alertas.size());
         modelo.put("alertasSemEstoque",
                 alertas.stream().filter(p -> p.situacao() == SituacaoEstoque.ESGOTADO).count());
         modelo.put("geradoEm", LocalDateTime.now());
         return modelo;
+    }
+
+    private String obterOrigemCliente(HttpExchange exchange) {
+        String forwardedFor = exchange.getRequestHeaders().getFirst("X-Forwarded-For");
+        if (forwardedFor != null && !forwardedFor.isBlank()) {
+            String ipPublico = forwardedFor.split(",")[0].trim();
+            return "Web (Internet) · IP " + ipPublico;
+        }
+        InetSocketAddress remoto = exchange.getRemoteAddress();
+        if (remoto != null && remoto.getAddress() != null) {
+            String ip = remoto.getAddress().getHostAddress();
+            if ("127.0.0.1".equals(ip) || "0:0:0:0:0:0:0:1".equals(ip) || "::1".equals(ip)) {
+                return "Web (Neste PC) · 127.0.0.1";
+            }
+            return "Web (Rede/Wi-Fi) · IP " + ip;
+        }
+        return "Painel Web";
     }
 
     private TipoMovimentacao lerTipo(String valor, List<String> erros) {
@@ -658,15 +833,19 @@ public final class DashboardWebServer implements AutoCloseable {
     }
 
     private void servirArquivoEstatico(HttpExchange exchange, String caminho) throws IOException {
-        byte[] conteudo;
-        try (InputStream entrada = DashboardWebServer.class.getClassLoader()
-                .getResourceAsStream(caminho.substring(1))) {
-            if (entrada == null) {
-                throw new RequisicaoRecusada(404, "Arquivo não encontrado.");
+        byte[] conteudo = cacheEstatico.get(caminho);
+        if (conteudo == null) {
+            try (InputStream entrada = DashboardWebServer.class.getClassLoader()
+                    .getResourceAsStream(caminho.substring(1))) {
+                if (entrada == null) {
+                    throw new RequisicaoRecusada(404, "Arquivo não encontrado.");
+                }
+                conteudo = entrada.readAllBytes();
+                cacheEstatico.put(caminho, conteudo);
             }
-            conteudo = entrada.readAllBytes();
         }
-        exchange.getResponseHeaders().set("Cache-Control", "no-cache");
+        exchange.getResponseHeaders().set("Cache-Control",
+                modoRestritoLocal ? "no-cache" : "public, max-age=3600");
         enviar(exchange, 200, ARQUIVOS_ESTATICOS.get(caminho), conteudo);
     }
 
@@ -692,6 +871,7 @@ public final class DashboardWebServer implements AutoCloseable {
         exchange.sendResponseHeaders(status, corpo.length == 0 ? -1 : corpo.length);
         if (corpo.length > 0) {
             exchange.getResponseBody().write(corpo);
+            exchange.getResponseBody().flush();
         }
     }
 
@@ -735,6 +915,17 @@ public final class DashboardWebServer implements AutoCloseable {
         }
         boolean mesmaOrigemHttp = origem.equals("http://" + host);
         boolean mesmaOrigemHttps = !modoRestritoLocal && origem.equals("https://" + host);
+        if (!modoRestritoLocal && !mesmaOrigemHttp && !mesmaOrigemHttps) {
+            String encaminhado = exchange.getRequestHeaders().getFirst("X-Forwarded-Host");
+            if (encaminhado != null && !encaminhado.isBlank()) {
+                String hostExterno = encaminhado.split(",")[0].trim();
+                mesmaOrigemHttp = origem.equals("http://" + hostExterno);
+                mesmaOrigemHttps = origem.equals("https://" + hostExterno);
+            }
+            if (!mesmaOrigemHttp && !mesmaOrigemHttps && "null".equals(origem)) {
+                throw new RequisicaoRecusada(403, "Formulário enviado por uma origem não permitida.");
+            }
+        }
         if (!mesmaOrigemHttp && !mesmaOrigemHttps) {
             throw new RequisicaoRecusada(403, "Formulário enviado por uma origem não permitida.");
         }

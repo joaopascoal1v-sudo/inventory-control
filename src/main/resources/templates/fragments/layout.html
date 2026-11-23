@@ -41,6 +41,8 @@
                th:attr="aria-current=${paginaAtiva == 'movimentacoes'} ? 'page' : null">Movimentações</a>
             <a th:href="@{/fornecedores}" th:classappend="${paginaAtiva == 'fornecedores'} ? 'ativo'"
                th:attr="aria-current=${paginaAtiva == 'fornecedores'} ? 'page' : null">Fornecedores</a>
+            <a th:if="${isAdmin}" th:href="@{/logs}" th:classappend="${paginaAtiva == 'logs'} ? 'ativo'"
+               th:attr="aria-current=${paginaAtiva == 'logs'} ? 'page' : null">Logs</a>
         </nav>
         <div class="sessao">
             <span class="sessao-usuario">

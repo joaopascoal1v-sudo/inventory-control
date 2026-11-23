@@ -1,6 +1,7 @@
 package com.estoque.app;
 
 import com.estoque.entities.Fornecedor;
+import com.estoque.entities.LogAuditoria;
 import com.estoque.entities.MotivoMovimentacao;
 import com.estoque.entities.MovimentacaoEstoque;
 import com.estoque.entities.PerfilAcesso;
@@ -9,6 +10,7 @@ import com.estoque.entities.ProdutoMovimentado;
 import com.estoque.entities.TipoMovimentacao;
 import com.estoque.entities.Usuario;
 import com.estoque.repository.MovimentacaoRepositoryJdbc;
+import com.estoque.service.AuditoriaService;
 import com.estoque.service.EstoqueService;
 import com.estoque.service.FornecedorService;
 import com.estoque.service.RelatorioExportacaoService;
@@ -104,6 +106,8 @@ public class UI {
 
     private final MovimentacaoRepositoryJdbc movimentacaoRepository =
             new MovimentacaoRepositoryJdbc();
+    private final AuditoriaService auditoria = new AuditoriaService();
+    private String filtroCategoriaLogsDesktop = null;
 
     private Usuario usuarioAutenticado;
     private Process processoTunel;
@@ -198,6 +202,23 @@ public class UI {
                 }
             };
 
+    private final DefaultTableModel modeloLogsAuditoria =
+            new DefaultTableModel(
+                    new Object[]{
+                            "Data / Hora",
+                            "Quem Acessou (Usuário)",
+                            "E-mail",
+                            "Perfil",
+                            "Ação",
+                            "O Que Modificou / Detalhes",
+                            "Origem / IP"
+                    }, 0) {
+                @Override
+                public boolean isCellEditable(int linha, int coluna) {
+                    return false;
+                }
+            };
+
     public UI(
             EstoqueService estoque,
             FornecedorService fornecedores,
@@ -220,14 +241,13 @@ public class UI {
 
         Usuario usuario = autenticar();
         if (usuario == null) {
-            System.exit(0);
             return;
         }
 
         usuarioAutenticado = usuario;
 
         JFrame janela = new JFrame("Inventory Control — Sistema de Estoque para Farmácia (Desktop + Web Online)");
-        janela.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        janela.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         janela.setSize(1160, 760);
         janela.setMinimumSize(new Dimension(960, 640));
         janela.setLocationRelativeTo(null);
@@ -249,6 +269,9 @@ public class UI {
         abas.addTab("  🕒 Histórico e Estornos  ", criarPainelHistorico());
         abas.addTab("  🚚 Fornecedores  ", criarPainelFornecedores());
         abas.addTab("  📊 Relatórios (PDF / Excel)  ", criarPainelRelatorios());
+        if (usuario.getPerfil() == PerfilAcesso.ADMIN) {
+            abas.addTab("  🔒 Logs (Admin)  ", criarPainelLogsAuditoria());
+        }
 
         janela.add(abas, BorderLayout.CENTER);
 
@@ -256,6 +279,7 @@ public class UI {
             atualizarTabelaProdutos();
             atualizarTabelaFornecedores();
             atualizarRelatorios();
+            atualizarTabelaLogs();
         } catch (SQLException e) {
             mostrarErro("Erro ao carregar dados: " + e.getMessage());
         }
@@ -372,7 +396,7 @@ public class UI {
         }
         String linkWifi = "http://" + ipLocal + ":" + porta + "/login";
 
-        if (linkPublicoAtual != null) {
+        if (linkPublicoAtual != null && processoTunel != null && processoTunel.isAlive()) {
             copiarParaClipboard(linkPublicoAtual);
             JOptionPane.showMessageDialog(
                     null,
@@ -388,48 +412,63 @@ public class UI {
         }
 
         Thread thread = new Thread(() -> {
-            try {
-                ProcessBuilder pb = new ProcessBuilder(
-                        "ssh",
-                        "-o", "StrictHostKeyChecking=accept-new",
-                        "-o", "ServerAliveInterval=30",
-                        "-R", "80:localhost:" + porta,
-                        "nokey@localhost.run");
-                pb.redirectErrorStream(true);
-                processoTunel = pb.start();
+            boolean dialogoExibido = false;
+            Pattern padraoUrl = Pattern.compile("(https://[a-zA-Z0-9.-]+\\.lhr\\.life)");
+            while (true) {
+                try {
+                    ProcessBuilder pb = new ProcessBuilder(
+                            "ssh",
+                            "-T",
+                            "-o", "StrictHostKeyChecking=accept-new",
+                            "-o", "ServerAliveInterval=15",
+                            "-o", "ServerAliveCountMax=4",
+                            "-o", "TCPKeepAlive=yes",
+                            "-o", "ExitOnForwardFailure=yes",
+                            "-R", "80:localhost:" + porta,
+                            "nokey@localhost.run");
+                    pb.redirectErrorStream(true);
+                    processoTunel = pb.start();
 
-                Pattern padraoUrl = Pattern.compile("(https://[a-zA-Z0-9.-]+\\.lhr\\.life)");
-                try (BufferedReader reader = new BufferedReader(
-                        new InputStreamReader(processoTunel.getInputStream(), StandardCharsets.UTF_8))) {
-                    String linha;
-                    while ((linha = reader.readLine()) != null) {
-                        Matcher matcher = padraoUrl.matcher(linha);
-                        if (matcher.find()) {
-                            linkPublicoAtual = matcher.group(1) + "/login";
-                            copiarParaClipboard(linkPublicoAtual);
-                            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
-                                    null,
-                                    "🎉 Link Público da Internet gerado com sucesso!\n\n"
-                                            + "🌍 Link para acessar de QUALQUER LUGAR:\n"
-                                            + linkPublicoAtual + "\n\n"
-                                            + "📶 Link na mesma rede Wi-Fi:\n"
-                                            + linkWifi + "\n\n"
-                                            + "✔ O link já foi COPIADO automaticamente! Basta colar (Ctrl+V) no WhatsApp.",
-                                    "Link Online Copiado!",
-                                    JOptionPane.INFORMATION_MESSAGE));
-                            break;
+                    try (BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(processoTunel.getInputStream(), StandardCharsets.UTF_8))) {
+                        String linha;
+                        while ((linha = reader.readLine()) != null) {
+                            Matcher matcher = padraoUrl.matcher(linha);
+                            if (matcher.find()) {
+                                linkPublicoAtual = matcher.group(1) + "/login";
+                                copiarParaClipboard(linkPublicoAtual);
+                                if (!dialogoExibido) {
+                                    dialogoExibido = true;
+                                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                                            null,
+                                            "🎉 Link Público da Internet gerado com sucesso!\n\n"
+                                                    + "🌍 Link para acessar de QUALQUER LUGAR:\n"
+                                                    + linkPublicoAtual + "\n\n"
+                                                    + "📶 Link na mesma rede Wi-Fi:\n"
+                                                    + linkWifi + "\n\n"
+                                                    + "✔ O link já foi COPIADO automaticamente! Basta colar (Ctrl+V) no WhatsApp.",
+                                            "Link Online Copiado!",
+                                            JOptionPane.INFORMATION_MESSAGE));
+                                }
+                            }
                         }
                     }
+                    processoTunel.waitFor();
+                    Thread.sleep(2000);
+                } catch (Exception e) {
+                    if (!dialogoExibido) {
+                        dialogoExibido = true;
+                        copiarParaClipboard(linkWifi);
+                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                                null,
+                                "Link da sua Rede / Wi-Fi copiado para a área de transferência:\n\n"
+                                        + linkWifi + "\n\n"
+                                        + "(Para acesso externo via internet, verifique se o OpenSSH e a conexão estão ativos).",
+                                "Link da Rede Copiado",
+                                JOptionPane.INFORMATION_MESSAGE));
+                    }
+                    break;
                 }
-            } catch (Exception e) {
-                copiarParaClipboard(linkWifi);
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
-                        null,
-                        "Link da sua Rede / Wi-Fi copiado para a área de transferência:\n\n"
-                                + linkWifi + "\n\n"
-                                + "(Para acesso externo via internet, verifique se o OpenSSH e a conexão estão ativos).",
-                        "Link da Rede Copiado",
-                        JOptionPane.INFORMATION_MESSAGE));
             }
         }, "gerador-link-online");
         thread.setDaemon(true);
@@ -520,7 +559,13 @@ public class UI {
 
             char[] senhaDigitada = senha.getPassword();
             try {
-                return usuarios.login(email.getText(), new String(senhaDigitada));
+                Usuario logado = usuarios.login(email.getText(), new String(senhaDigitada));
+                auditoria.registrarAcesso(
+                        logado,
+                        "Login Desktop",
+                        "Autenticou-se na interface Desktop local",
+                        "Desktop (Neste PC)");
+                return logado;
             } catch (IllegalArgumentException e) {
                 mostrarErro(e.getMessage());
             } catch (SQLException e) {
@@ -902,6 +947,57 @@ public class UI {
         return painel;
     }
 
+    private JPanel criarPainelLogsAuditoria() {
+        JPanel painel = new JPanel(new BorderLayout(0, 12));
+        painel.setBackground(BG_APP);
+        painel.setBorder(new EmptyBorder(8, 4, 4, 4));
+
+        JPanel cardTopo = criarCard();
+        cardTopo.setLayout(new BorderLayout(0, 10));
+
+        JLabel descricao = new JLabel(
+                "🔒 Auditoria do Administrador — Acompanhe todos os logins, contas criadas e modificações feitas no estoque (Web e Desktop).");
+        descricao.setFont(FONT_REGULAR);
+        descricao.setForeground(TEXT_PRIMARY);
+        cardTopo.add(descricao, BorderLayout.NORTH);
+
+        JPanel botoesFiltro = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        botoesFiltro.setOpaque(false);
+
+        adicionarBotao(botoesFiltro, "Todos os Registros", COLOR_PRIMARY, Color.WHITE,
+                "Mostra todos os acessos e modificações", () -> {
+                    filtroCategoriaLogsDesktop = null;
+                    atualizarTabelaLogs();
+                });
+        adicionarBotao(botoesFiltro, "👤 Quem Acessou", COLOR_INDIGO, Color.WHITE,
+                "Filtra apenas logins, saídas e criação de contas", () -> {
+                    filtroCategoriaLogsDesktop = "ACESSO";
+                    atualizarTabelaLogs();
+                });
+        adicionarBotao(botoesFiltro, "✏️ O Que Modificou", COLOR_WARNING, Color.WHITE,
+                "Filtra apenas alterações de produtos, estoque e fornecedores", () -> {
+                    filtroCategoriaLogsDesktop = "MODIFICACAO";
+                    atualizarTabelaLogs();
+                });
+        adicionarBotao(botoesFiltro, "↻ Atualizar Logs", COLOR_SECONDARY, Color.WHITE,
+                "Recarrega os registros de auditoria mais recentes", this::atualizarTabelaLogs);
+
+        cardTopo.add(botoesFiltro, BorderLayout.SOUTH);
+        painel.add(cardTopo, BorderLayout.NORTH);
+
+        JPanel cardTabela = criarCard();
+        cardTabela.setLayout(new BorderLayout(0, 8));
+        JTable tabelaLogs = criarTabelaEstilizada(modeloLogsAuditoria);
+        int[] larguras = {130, 150, 170, 100, 150, 320, 150};
+        for (int i = 0; i < larguras.length && i < tabelaLogs.getColumnCount(); i++) {
+            tabelaLogs.getColumnModel().getColumn(i).setPreferredWidth(larguras[i]);
+        }
+        cardTabela.add(criarScrollLimpo(tabelaLogs), BorderLayout.CENTER);
+        painel.add(cardTabela, BorderLayout.CENTER);
+
+        return painel;
+    }
+
     private JPanel criarCard() {
         JPanel card = new JPanel();
         card.setBackground(BG_CARD);
@@ -1078,49 +1174,79 @@ public class UI {
 
     private void cadastrarProduto() {
         executarAcao(
-                () -> estoque.cadastrar(
-                        new Produto(
-                                lerCodigo(),
-                                nomeProduto.getText(),
-                                lerPreco(),
-                                lerQuantidade(),
-                                lerEstoqueMinimo())),
+                () -> {
+                    String cod = lerCodigo();
+                    String nome = nomeProduto.getText();
+                    BigDecimal pr = lerPreco();
+                    int qtd = lerQuantidade();
+                    estoque.cadastrar(new Produto(cod, nome, pr, qtd, lerEstoqueMinimo()));
+                    auditoria.registrarModificacao(
+                            usuarioAutenticado,
+                            "Novo Produto",
+                            "Cadastrou o produto " + cod + " (" + nome + ") · Qtd: " + qtd + " · R$ " + pr,
+                            "Desktop (Neste PC)");
+                },
                 "Produto cadastrado com sucesso!");
     }
 
     private void atualizarProduto() {
         executarAcao(
-                () -> estoque.atualizar(
-                        lerCodigo(),
-                        nomeProduto.getText(),
-                        lerPreco(),
-                        lerEstoqueMinimo()),
+                () -> {
+                    String cod = lerCodigo();
+                    String nome = nomeProduto.getText();
+                    BigDecimal pr = lerPreco();
+                    int min = lerEstoqueMinimo();
+                    estoque.atualizar(cod, nome, pr, min);
+                    auditoria.registrarModificacao(
+                            usuarioAutenticado,
+                            "Edição de Produto",
+                            "Atualizou dados do produto " + cod + " (" + nome + ") · R$ " + pr + " · Mín: " + min,
+                            "Desktop (Neste PC)");
+                },
                 "Produto atualizado com sucesso!");
     }
 
     private void adicionarEstoque() {
         executarAcao(
-                () -> estoque.registrarMovimentacao(
-                        lerCodigo(),
-                        TipoMovimentacao.ENTRADA,
-                        null,
-                        lerQuantidade(),
-                        MotivoMovimentacao.COMPRA,
-                        usuarioAutenticado.getId(),
-                        null),
+                () -> {
+                    String cod = lerCodigo();
+                    int qtd = lerQuantidade();
+                    estoque.registrarMovimentacao(
+                            cod,
+                            TipoMovimentacao.ENTRADA,
+                            null,
+                            qtd,
+                            MotivoMovimentacao.COMPRA,
+                            usuarioAutenticado.getId(),
+                            null);
+                    auditoria.registrarModificacao(
+                            usuarioAutenticado,
+                            "Entrada de Estoque",
+                            "Adicionou +" + qtd + " un. ao produto " + cod,
+                            "Desktop (Neste PC)");
+                },
                 "Entrada de estoque registrada!");
     }
 
     private void retirarEstoque() {
         executarAcao(
-                () -> estoque.registrarMovimentacao(
-                        lerCodigo(),
-                        TipoMovimentacao.SAIDA,
-                        null,
-                        lerQuantidade(),
-                        MotivoMovimentacao.VENDA,
-                        usuarioAutenticado.getId(),
-                        null),
+                () -> {
+                    String cod = lerCodigo();
+                    int qtd = lerQuantidade();
+                    estoque.registrarMovimentacao(
+                            cod,
+                            TipoMovimentacao.SAIDA,
+                            null,
+                            qtd,
+                            MotivoMovimentacao.VENDA,
+                            usuarioAutenticado.getId(),
+                            null);
+                    auditoria.registrarModificacao(
+                            usuarioAutenticado,
+                            "Saída de Estoque",
+                            "Retirou -" + qtd + " un. do produto " + cod,
+                            "Desktop (Neste PC)");
+                },
                 "Saída de estoque registrada!");
     }
 
@@ -1139,7 +1265,14 @@ public class UI {
 
         if (resposta == JOptionPane.YES_OPTION
                 && executarAcao(
-                        () -> estoque.remover(codigoProduto),
+                        () -> {
+                            estoque.remover(codigoProduto);
+                            auditoria.registrarModificacao(
+                                    usuarioAutenticado,
+                                    "Exclusão de Produto",
+                                    "Removeu o produto " + codigoProduto + " do catálogo",
+                                    "Desktop (Neste PC)");
+                        },
                         "Produto removido.")) {
             limparCamposProduto();
         }
@@ -1147,15 +1280,22 @@ public class UI {
 
     private void cadastrarFornecedor() {
         try {
+            String nome = nomeFornecedor.getText();
             fornecedores.cadastrar(
                     new Fornecedor(
-                            nomeFornecedor.getText(),
+                            nome,
                             cnpjFornecedor.getText(),
                             telefoneFornecedor.getText(),
                             emailFornecedor.getText(),
                             enderecoFornecedor.getText()));
+            auditoria.registrarModificacao(
+                    usuarioAutenticado,
+                    "Novo Fornecedor",
+                    "Cadastrou o fornecedor " + nome,
+                    "Desktop (Neste PC)");
 
             atualizarTabelaFornecedores();
+            atualizarTabelaLogs();
             limparCamposFornecedor();
             JOptionPane.showMessageDialog(null, "Fornecedor cadastrado com sucesso!");
         } catch (IllegalArgumentException e) {
@@ -1209,6 +1349,12 @@ public class UI {
                     nome.getText(),
                     email.getText(),
                     new String(senhaDigitada));
+            auditoria.registrarModificacao(
+                    administrador,
+                    "Criação de Conta",
+                    "Cadastrou novo funcionário: " + nome.getText().trim() + " (" + email.getText().trim() + ")",
+                    "Desktop (Neste PC)");
+            atualizarTabelaLogs();
 
             JOptionPane.showMessageDialog(null, "Usuário cadastrado com sucesso!");
         } catch (IllegalArgumentException e) {
@@ -1228,6 +1374,7 @@ public class UI {
             acao.executar();
             atualizarTabelaProdutos();
             atualizarRelatorios();
+            atualizarTabelaLogs();
             JOptionPane.showMessageDialog(null, mensagem);
             return true;
         } catch (NumberFormatException e) {
@@ -1352,6 +1499,21 @@ public class UI {
             }
         } catch (SQLException e) {
             mostrarErro("Erro ao carregar relatorios: " + e.getMessage());
+        }
+    }
+
+    private void atualizarTabelaLogs() {
+        modeloLogsAuditoria.setRowCount(0);
+        for (LogAuditoria log : auditoria.listar(filtroCategoriaLogsDesktop, 300)) {
+            modeloLogsAuditoria.addRow(new Object[]{
+                    log.dataHora().format(FORMATO_DATA),
+                    log.usuarioNome(),
+                    log.usuarioEmail(),
+                    log.usuarioPerfil(),
+                    log.acao(),
+                    log.detalhes(),
+                    log.origem()
+            });
         }
     }
 

@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="pt-BR" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Logs de Auditoria')}"></head>
+<body>
+<header th:replace="~{fragments/layout :: cabecalho}"></header>
+<div th:replace="~{fragments/layout :: alertaGlobal}"></div>
+
+<main class="conteudo">
+    <div class="cabecalho-pagina">
+        <div>
+            <h1>Logs de Auditoria</h1>
+            <p class="subtitulo">Histórico completo de quem acessou o sistema e o que foi modificado</p>
+        </div>
+        <div>
+            <a class="botao botao-primario" th:href="@{/logs}">↻ Atualizar Logs</a>
+        </div>
+    </div>
+
+    <section class="indicadores" aria-label="Resumo de auditoria">
+        <article class="indicador">
+            <h2 class="indicador-rotulo">Total de registros</h2>
+            <p class="indicador-valor" th:text="${totalLogs}">0</p>
+            <p class="indicador-detalhe">eventos gravados no banco</p>
+        </article>
+        <article class="indicador">
+            <h2 class="indicador-rotulo">Acessos e Logins</h2>
+            <p class="indicador-valor" th:text="${totalAcessos}">0</p>
+            <p class="indicador-detalhe">entradas, saídas e novas contas</p>
+        </article>
+        <article class="indicador">
+            <h2 class="indicador-rotulo">Modificações</h2>
+            <p class="indicador-valor" th:text="${totalModificacoes}">0</p>
+            <p class="indicador-detalhe">alterações em produtos e estoque</p>
+        </article>
+        <article class="indicador">
+            <h2 class="indicador-rotulo">Usuários identificados</h2>
+            <p class="indicador-valor" th:text="${totalUsuariosUnicos}">0</p>
+            <p class="indicador-detalhe">pessoas diferentes que acessaram</p>
+        </article>
+    </section>
+
+    <section class="painel" aria-label="Tabela de logs de auditoria">
+        <div class="barra-filtros">
+            <nav class="abas" aria-label="Filtrar logs por categoria">
+                <a th:href="@{/logs}"
+                   th:classappend="${filtroCategoria == ''} ? 'ativo'"
+                   th:attr="aria-current=${filtroCategoria == ''} ? 'page' : null">
+                    Todos os registros
+                    <span class="aba-contador" th:text="${totalLogs}">0</span>
+                </a>
+                <a th:href="@{/logs(categoria='ACESSO')}"
+                   th:classappend="${filtroCategoria == 'ACESSO'} ? 'ativo'"
+                   th:attr="aria-current=${filtroCategoria == 'ACESSO'} ? 'page' : null">
+                    Quem acessou
+                    <span class="aba-contador" th:text="${totalAcessos}">0</span>
+                </a>
+                <a th:href="@{/logs(categoria='MODIFICACAO')}"
+                   th:classappend="${filtroCategoria == 'MODIFICACAO'} ? 'ativo'"
+                   th:attr="aria-current=${filtroCategoria == 'MODIFICACAO'} ? 'page' : null">
+                    O que modificou
+                    <span class="aba-contador" th:text="${totalModificacoes}">0</span>
+                </a>
+            </nav>
+            <span class="selo selo-normal">
+                <span class="selo-ponto" aria-hidden="true"></span>
+                <span>Exclusivo do Administrador</span>
+            </span>
+        </div>
+
+        <div th:if="${logs.isEmpty()}" class="vazio">
+            <p><strong>Nenhum registro encontrado</strong> para o filtro selecionado.</p>
+        </div>
+
+        <div th:unless="${logs.isEmpty()}" class="tabela-rolagem">
+            <table class="tabela">
+                <thead>
+                <tr>
+                    <th scope="col">Data / Hora</th>
+                    <th scope="col">Quem Acessou (Usuário)</th>
+                    <th scope="col">Perfil</th>
+                    <th scope="col">Ação</th>
+                    <th scope="col">O Que Modificou / Detalhes</th>
+                    <th scope="col">Origem / IP</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="log : ${logs}">
+                    <td class="data-celula">
+                        <time th:datetime="${#temporals.format(log.dataHora, 'yyyy-MM-dd HH:mm:ss')}"
+                              th:text="${#temporals.format(log.dataHora, 'dd/MM/yyyy HH:mm:ss')}">data</time>
+                    </td>
+                    <td class="celula-produto">
+                        <span class="produto-nome" th:text="${log.usuarioNome}">Nome</span>
+                        <span class="produto-codigo" th:text="${log.usuarioEmail}">email@farmacia.com</span>
+                    </td>
+                    <td class="data-celula">
+                        <span class="etiqueta" th:text="${log.usuarioPerfil}">Perfil</span>
+                    </td>
+                    <td class="data-celula">
+                        <span class="selo" th:classappend="${log.classeSelo()}">
+                            <span class="selo-ponto" aria-hidden="true"></span>
+                            <span th:text="${log.acao}">Ação</span>
+                        </span>
+                    </td>
+                    <td style="min-width: 240px; line-height: 1.45; word-break: break-word;">
+                        <span th:text="${log.detalhes}">Detalhes da modificação</span>
+                    </td>
+                    <td class="data-celula">
+                        <span class="etiqueta" th:text="${log.origem}">Web · IP</span>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+</main>
+
+<footer th:replace="~{fragments/layout :: rodape}"></footer>
+</body>
+</html>

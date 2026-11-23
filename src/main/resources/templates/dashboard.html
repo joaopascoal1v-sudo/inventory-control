@@ -20,8 +20,11 @@
 
     <section class="painel" style="margin-bottom: 20px;" th:if="${isAdmin}">
         <div class="painel-cabecalho">
-            <h2>🌐 Disponibilizar Sistema para Outros Computadores (Rede e Web)</h2>
-            <span class="selo selo-normal"><span class="selo-ponto"></span>Painel do Administrador</span>
+            <h2>🌐 Painel do Administrador · Rede, Web e Auditoria</h2>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <a class="botao botao-primario" th:href="@{/logs}">🔒 Abrir Aba de Logs (Acessos e Modificações)</a>
+                <span class="selo selo-normal"><span class="selo-ponto"></span>Administrador</span>
+            </div>
         </div>
         <div style="padding: 16px 20px; display: flex; flex-wrap: wrap; gap: 20px; align-items: center; justify-content: space-between;">
             <div>

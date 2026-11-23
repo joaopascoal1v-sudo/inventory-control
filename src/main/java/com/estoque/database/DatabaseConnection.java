@@ -74,6 +74,19 @@ public final class DatabaseConnection {
                     + "FOREIGN KEY (codigo_produto) REFERENCES produtos(codigo)"
                     + ")";
 
+    private static final String CREATE_AUDIT_LOGS_TABLE =
+            "CREATE TABLE IF NOT EXISTS logs_auditoria ("
+                    + "id BIGINT AUTO_INCREMENT PRIMARY KEY,"
+                    + "data_hora TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+                    + "usuario_nome VARCHAR(255) NOT NULL,"
+                    + "usuario_email VARCHAR(255) NOT NULL,"
+                    + "usuario_perfil VARCHAR(40) NOT NULL,"
+                    + "categoria VARCHAR(30) NOT NULL,"
+                    + "acao VARCHAR(80) NOT NULL,"
+                    + "detalhes TEXT NOT NULL,"
+                    + "origem VARCHAR(120) NOT NULL"
+                    + ")";
+
     private DatabaseConnection() {
     }
 
@@ -82,6 +95,13 @@ public final class DatabaseConnection {
         if (url.startsWith("jdbc:h2:")) {
             String user = environmentOrDefault("DB_USER", "sa");
             String password = environmentOrDefault("DB_PASSWORD", "");
+            if (url.startsWith("jdbc:h2:file:") && !url.toUpperCase().contains("AUTO_SERVER=")) {
+                try {
+                    return DriverManager.getConnection(url + ";AUTO_SERVER=TRUE", user, password);
+                } catch (SQLException ignored) {
+                    // Fallback para modo arquivo simples se o socket local do AUTO_SERVER nao estiver disponivel
+                }
+            }
             return DriverManager.getConnection(url, user, password);
         }
 
@@ -177,6 +197,7 @@ public final class DatabaseConnection {
 
             statement.execute(CREATE_MOVEMENTS_TABLE);
             statement.execute(CREATE_MOVIMENTACOES_TABLE);
+            statement.execute(CREATE_AUDIT_LOGS_TABLE);
         }
     }
 
